@@ -225,3 +225,20 @@
 .section-h { margin-top: 24px; }
 
 .row.wrap { flex-wrap: wrap; }
+
+/* Best-score badge on track rows */
+.best-score {
+  font-size: 13px;
+  color: var(--text-h);
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.best-score-perfect {
+  color: #fff;
+  background: rgba(46, 204, 113, 0.85);
+  border-color: rgba(46, 204, 113, 0.85);
+}

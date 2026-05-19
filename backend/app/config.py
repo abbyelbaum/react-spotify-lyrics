@@ -27,6 +27,7 @@ class Settings:
         "user-top-read",
         "playlist-read-private",
         "playlist-read-collaborative",
+        "user-library-read",
     ])
 
 

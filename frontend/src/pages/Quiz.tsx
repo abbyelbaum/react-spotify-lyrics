@@ -351,7 +351,13 @@ export default function Quiz() {
               That was <strong>{songInfo.title}</strong> by <strong>{songInfo.artist}</strong>.
             </p>
           )}
-          <p>You got <strong>{correctCount}</strong> / {totalWords} words.</p>
+          <p>
+            You got <strong>{correctCount}</strong> / {totalWords} words
+            {totalWords > 0 && (
+              <> (<strong>{Math.round((correctCount / totalWords) * 100)}%</strong>)</>
+            )}
+            .
+          </p>
           {finalScore !== null && <p>Score: <strong>{finalScore}</strong></p>}
           {errorMsg && <p className="error">{errorMsg}</p>}
           <div className="row gap center wrap">

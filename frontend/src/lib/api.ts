@@ -119,6 +119,7 @@ export const api = {
     request<(Attempt & { display_name: string | null })[]>(
       `/api/scores/track/${encodeURIComponent(trackId)}`,
     ),
+  bestScores: () => request<Record<string, number>>('/api/best-scores'),
 }
 
 export function normalizeWord(word: string): string {

@@ -169,6 +169,12 @@ def api_top_scores(track_id: str, request: Request, limit: int = 10):
     return [dict(r) for r in rows]
 
 
+@app.get("/api/best-scores")
+def api_best_scores(request: Request):
+    uid = auth.current_user_id(request)
+    return db.best_percent_by_user(uid)
+
+
 @app.get("/api/health")
 def api_health():
     return {"ok": True}

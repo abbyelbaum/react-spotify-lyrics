@@ -17,6 +17,11 @@ type SetContext =
 export default function SourcePicker() {
   const navigate = useNavigate()
   const [mode, setMode] = useState<Mode>('top')
+  const [bestScores, setBestScores] = useState<Record<string, number>>({})
+
+  useEffect(() => {
+    api.bestScores().then(setBestScores).catch(() => {/* ok if empty */})
+  }, [])
 
   return (
     <div className="page">
@@ -34,13 +39,15 @@ export default function SourcePicker() {
         <button className={mode === 'search' ? 'tab active' : 'tab'} onClick={() => setMode('search')}>Search</button>
       </nav>
 
-      {mode === 'top' && <TopTracks navigate={navigate} />}
-      {mode === 'playlists' && <PlaylistBrowser navigate={navigate} />}
-      {mode === 'albums' && <AlbumBrowser navigate={navigate} />}
-      {mode === 'search' && <SearchTab navigate={navigate} />}
+      {mode === 'top' && <TopTracks navigate={navigate} bestScores={bestScores} />}
+      {mode === 'playlists' && <PlaylistBrowser navigate={navigate} bestScores={bestScores} />}
+      {mode === 'albums' && <AlbumBrowser navigate={navigate} bestScores={bestScores} />}
+      {mode === 'search' && <SearchTab navigate={navigate} bestScores={bestScores} />}
     </div>
   )
 }
+
+type BestScores = Record<string, number>
 
 type Nav = ReturnType<typeof useNavigate>
 
@@ -72,7 +79,7 @@ function BlindBanner({ navigate }: { navigate: Nav }) {
   )
 }
 
-function TopTracks({ navigate }: { navigate: Nav }) {
+function TopTracks({ navigate, bestScores }: { navigate: Nav; bestScores: BestScores }) {
   const [timeRange, setTimeRange] = useState('medium_term')
   const [tracks, setTracks] = useState<Track[] | null>(null)
   const [loading, setLoading] = useState(false)
@@ -96,12 +103,12 @@ function TopTracks({ navigate }: { navigate: Nav }) {
       </div>
       {error && <p className="error">{error}</p>}
       {loading && <p className="muted">Loading…</p>}
-      {tracks && <TrackList tracks={tracks} onPick={(t) => startQuiz(navigate, t)} />}
+      {tracks && <TrackList tracks={tracks} bestScores={bestScores} onPick={(t) => startQuiz(navigate, t)} />}
     </>
   )
 }
 
-function PlaylistBrowser({ navigate }: { navigate: Nav }) {
+function PlaylistBrowser({ navigate, bestScores }: { navigate: Nav; bestScores: BestScores }) {
   const [playlists, setPlaylists] = useState<Playlist[] | null>(null)
   const [active, setActive] = useState<{ playlist: Playlist; tracks: Track[] } | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -142,6 +149,7 @@ function PlaylistBrowser({ navigate }: { navigate: Nav }) {
         </div>
         <TrackList
           tracks={active.tracks}
+          bestScores={bestScores}
           onPick={(t) => startQuiz(navigate, t, { kind: 'playlist', id: active.playlist.id, name: active.playlist.name, tracks: active.tracks })}
         />
       </>
@@ -173,7 +181,7 @@ function PlaylistBrowser({ navigate }: { navigate: Nav }) {
   )
 }
 
-function AlbumBrowser({ navigate }: { navigate: Nav }) {
+function AlbumBrowser({ navigate, bestScores }: { navigate: Nav; bestScores: BestScores }) {
   const [albums, setAlbums] = useState<Album[] | null>(null)
   const [active, setActive] = useState<{ album: Album; tracks: Track[] } | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -215,6 +223,7 @@ function AlbumBrowser({ navigate }: { navigate: Nav }) {
         <p className="muted small">{active.album.artist}</p>
         <TrackList
           tracks={active.tracks}
+          bestScores={bestScores}
           onPick={(t) => startQuiz(navigate, t, { kind: 'album', id: active.album.id, name: active.album.name, tracks: active.tracks })}
         />
       </>
@@ -247,7 +256,7 @@ function AlbumBrowser({ navigate }: { navigate: Nav }) {
   )
 }
 
-function SearchTab({ navigate }: { navigate: Nav }) {
+function SearchTab({ navigate, bestScores }: { navigate: Nav; bestScores: BestScores }) {
   const [q, setQ] = useState('')
   const [results, setResults] = useState<{ tracks: Track[]; albums: Album[] } | null>(null)
   const [activeAlbum, setActiveAlbum] = useState<{ album: Album; tracks: Track[] } | null>(null)
@@ -301,6 +310,7 @@ function SearchTab({ navigate }: { navigate: Nav }) {
           <p className="muted small">{activeAlbum.album.artist}</p>
           <TrackList
             tracks={activeAlbum.tracks}
+            bestScores={bestScores}
             onPick={(t) => startQuiz(navigate, t, {
               kind: 'album', id: activeAlbum.album.id, name: activeAlbum.album.name, tracks: activeAlbum.tracks,
             })}
@@ -313,7 +323,7 @@ function SearchTab({ navigate }: { navigate: Nav }) {
           {results.tracks.length > 0 && (
             <>
               <h2 className="section-h">Songs</h2>
-              <TrackList tracks={results.tracks} onPick={(t) => startQuiz(navigate, t)} />
+              <TrackList tracks={results.tracks} bestScores={bestScores} onPick={(t) => startQuiz(navigate, t)} />
             </>
           )}
           {results.albums.length > 0 && (
@@ -342,20 +352,36 @@ function SearchTab({ navigate }: { navigate: Nav }) {
   )
 }
 
-function TrackList({ tracks, onPick }: { tracks: Track[]; onPick: (t: Track) => void }) {
+function TrackList({
+  tracks,
+  bestScores,
+  onPick,
+}: {
+  tracks: Track[]
+  bestScores?: BestScores
+  onPick: (t: Track) => void
+}) {
   if (!tracks.length) return <p className="muted">No tracks found.</p>
   return (
     <ul className="list">
-      {tracks.map((t) => (
-        <li key={t.id} className="list-item">
-          {t.image && <img src={t.image} alt="" className="thumb" />}
-          <div className="list-body">
-            <div className="list-title">{t.name}</div>
-            <div className="muted small">{t.artist}</div>
-          </div>
-          <button className="btn btn-primary" onClick={() => onPick(t)}>Quiz me</button>
-        </li>
-      ))}
+      {tracks.map((t) => {
+        const best = bestScores?.[t.id]
+        return (
+          <li key={t.id} className="list-item">
+            {t.image && <img src={t.image} alt="" className="thumb" />}
+            <div className="list-body">
+              <div className="list-title">{t.name}</div>
+              <div className="muted small">{t.artist}</div>
+            </div>
+            {best !== undefined && (
+              <span className={`best-score${best === 100 ? ' best-score-perfect' : ''}`}>
+                {best}%
+              </span>
+            )}
+            <button className="btn btn-primary" onClick={() => onPick(t)}>Quiz me</button>
+          </li>
+        )
+      })}
     </ul>
   )
 }

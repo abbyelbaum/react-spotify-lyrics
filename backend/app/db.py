@@ -130,6 +130,22 @@ def list_user_attempts(spotify_user_id: str, limit: int = 50) -> list[sqlite3.Ro
         ).fetchall()
 
 
+def best_percent_by_user(spotify_user_id: str) -> dict[str, int]:
+    """Map of track_id -> best percentage (0-100, rounded) for this user."""
+    with connect() as con:
+        rows = con.execute(
+            """
+            SELECT track_id,
+                   MAX(CAST(words_correct AS REAL) / words_total) AS best_pct
+            FROM attempts
+            WHERE spotify_user_id = ? AND words_total > 0
+            GROUP BY track_id
+            """,
+            (spotify_user_id,),
+        ).fetchall()
+    return {r["track_id"]: round(float(r["best_pct"]) * 100) for r in rows}
+
+
 def top_scores_for_track(track_id: str, limit: int = 10) -> list[sqlite3.Row]:
     with connect() as con:
         return con.execute(
