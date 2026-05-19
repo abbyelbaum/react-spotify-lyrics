@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
+import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import Login from './pages/Login'
 import SourcePicker from './pages/SourcePicker'
 import Quiz from './pages/Quiz'
@@ -48,7 +48,9 @@ function AuthedApp() {
   return (
     <>
       <nav className="topbar">
-        <span className="brand">Lyric Quiz</span>
+        <Link to="/picker" className="brand" aria-label="Back to song picker">
+          Lyric Quiz
+        </Link>
         <div className="row gap">
           <span className="muted small">Hi, {auth.me.display_name || auth.me.id}</span>
           <button className="btn btn-ghost" onClick={onLogout}>Log out</button>

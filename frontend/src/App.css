@@ -30,7 +30,33 @@
   padding: 12px 24px;
   border-bottom: 1px solid var(--border);
 }
-.brand { font-weight: 600; color: var(--text-h); }
+.brand {
+  font-family: var(--heading);
+  font-weight: 600;
+  font-size: 22px;
+  letter-spacing: -0.5px;
+  color: var(--text-h);
+  text-decoration: none;
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: linear-gradient(135deg, var(--accent) 0%, #ff6db8 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+.brand:hover {
+  border-color: var(--accent-border);
+  transform: translateY(-1px);
+}
+.brand:active {
+  transform: translateY(0);
+}
+.brand:focus-visible {
+  outline: 2px solid var(--accent-border);
+  outline-offset: 2px;
+}
 
 /* Buttons */
 .btn {
