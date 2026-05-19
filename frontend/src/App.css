@@ -1,0 +1,227 @@
+/* Layout primitives */
+.page {
+  padding: 24px 32px 80px;
+  text-align: left;
+  flex: 1;
+  min-width: 0;
+}
+.page-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 16px;
+}
+.row { display: flex; align-items: center; }
+.row.gap { gap: 12px; }
+.row.between { justify-content: space-between; }
+.row.center { justify-content: center; }
+.muted { color: var(--text); }
+.small { font-size: 14px; }
+.error { color: #c0392b; }
+.subtitle { font-size: 18px; max-width: 480px; margin: 0 auto; }
+
+/* Topbar */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border);
+}
+.brand { font-weight: 600; color: var(--text-h); }
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-h);
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+  text-decoration: none;
+}
+.btn:hover { border-color: var(--accent-border); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.btn-primary:hover { filter: brightness(1.08); }
+.btn-ghost { border-color: transparent; background: transparent; }
+.btn-danger { color: #c0392b; border-color: rgba(192, 57, 43, 0.4); }
+.btn-lg { font-size: 17px; padding: 12px 22px; }
+
+/* Tabs */
+.tabs { display: flex; gap: 8px; margin: 16px 0; border-bottom: 1px solid var(--border); }
+.tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text);
+  padding: 8px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+.tab.active { color: var(--text-h); border-bottom-color: var(--accent); }
+
+/* Lists */
+.list { list-style: none; padding: 0; margin: 16px 0; display: flex; flex-direction: column; gap: 8px; }
+.list-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.list-body { flex: 1; min-width: 0; }
+.list-title { color: var(--text-h); font-weight: 500; }
+.thumb { width: 48px; height: 48px; border-radius: 4px; object-fit: cover; }
+
+/* Quiz */
+.quiz-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.quiz-stats { display: flex; gap: 24px; }
+.stat { display: flex; flex-direction: column; align-items: flex-end; }
+.stat-num { font-size: 24px; color: var(--text-h); font-variant-numeric: tabular-nums; }
+.stat-label { font-size: 12px; color: var(--text); }
+
+.lyrics-wrap { position: relative; }
+.lyrics {
+  max-height: 50vh;
+  overflow-y: auto;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--code-bg);
+  font-family: var(--mono);
+  font-size: 16px;
+  line-height: 200%;
+  letter-spacing: 0;
+}
+.lyrics-paused { filter: blur(8px); pointer-events: none; user-select: none; }
+.lyrics-pause-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 8px;
+  z-index: 1;
+}
+.pause-card {
+  background: var(--bg);
+  border: 1px solid var(--accent-border);
+  border-radius: 8px;
+  padding: 24px 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  box-shadow: var(--shadow);
+}
+.pause-card h2 { margin: 0; }
+.lyrics-line { min-height: 1.6em; white-space: pre-wrap; }
+.word { display: inline-block; padding: 0 2px; border-radius: 3px; }
+.word-blank { color: var(--text); letter-spacing: 1px; }
+.word-correct { color: var(--text-h); background: rgba(46, 204, 113, 0.15); }
+.word-missed { color: #ff5454; background: rgba(192, 57, 43, 0.12); }
+.word-skipped { color: #c0392b; background: rgba(192, 57, 43, 0.12); text-decoration: line-through; }
+.word-current { color: var(--accent); background: var(--accent-bg); outline: 2px solid var(--accent-border); }
+.word-typed { color: var(--accent); }
+.word-rest { color: var(--text); letter-spacing: 1px; }
+
+.quiz-controls {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  position: sticky;
+  bottom: 0;
+  background: var(--bg);
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+.quiz-input {
+  flex: 1;
+  padding: 12px 14px;
+  font: inherit;
+  font-size: 18px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-h);
+}
+.quiz-input:focus { outline: 2px solid var(--accent-border); border-color: var(--accent); }
+
+.done-card {
+  margin-top: 24px;
+  padding: 24px;
+  border: 1px solid var(--accent-border);
+  border-radius: 8px;
+  background: var(--accent-bg);
+  text-align: center;
+}
+
+/* Scores */
+.scores-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 16px;
+}
+.scores-table th, .scores-table td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.scores-table th { color: var(--text); font-weight: 500; font-size: 14px; }
+
+#root { text-align: left; }
+
+/* Blind quiz banner + reveal styling */
+.blind-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-bg);
+  border-radius: 8px;
+  margin: 8px 0 16px;
+}
+.blind-title { color: var(--text-h); font-weight: 600; }
+.blind-hidden { letter-spacing: 6px; }
+.blind-tag { margin-top: 4px; }
+.reveal-line { margin-bottom: 8px; }
+
+/* Search */
+.search-bar { margin: 16px 0; }
+.search-input {
+  flex: 1;
+  padding: 10px 14px;
+  font: inherit;
+  font-size: 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-h);
+}
+.search-input:focus { outline: 2px solid var(--accent-border); border-color: var(--accent); }
+.section-h { margin-top: 24px; }
+
+.row.wrap { flex-wrap: wrap; }
