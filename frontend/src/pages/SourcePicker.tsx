@@ -228,15 +228,8 @@ function PlaylistBrowser({
     finally { setLoading(false) }
   }
 
-  const randomFromPlaylist = async (p: Playlist) => {
-    setLoading(true); setError(null)
-    try {
-      const tracks = await api.playlistTracks(p.id)
-      if (!tracks.length) { setError('That playlist is empty'); return }
-      const pick = tracks[Math.floor(Math.random() * tracks.length)]
-      startQuiz(navigate, pick, { kind: 'playlist', id: p.id, name: p.name, tracks })
-    } catch (e) { setError(String(e)) }
-    finally { setLoading(false) }
+  const blindRandomFromPlaylist = (p: Playlist) => {
+    navigate(`/quiz?blind=1&source=playlist:${encodeURIComponent(p.id)}&t=${Date.now()}`)
   }
 
   if (active) {
@@ -245,7 +238,10 @@ function PlaylistBrowser({
       <>
         <div className="row between">
           <h2>{active.playlist.name}</h2>
-          <button className="btn btn-ghost" onClick={() => setActive(null)}>← Back to playlists</button>
+          <div className="row gap">
+            <button className="btn btn-primary" onClick={() => blindRandomFromPlaylist(active.playlist)}>Random</button>
+            <button className="btn btn-ghost" onClick={() => setActive(null)}>← Back to playlists</button>
+          </div>
         </div>
         <p className="muted small">Played {played} / {active.tracks.length} songs in this playlist.</p>
         <TrackList
@@ -277,7 +273,7 @@ function PlaylistBrowser({
               <PlayCountBadge stats={playStats[p.id]} loading={!tracksReady} />
               <div className="row gap">
                 <button className="btn" onClick={() => openPlaylist(p)}>Browse</button>
-                <button className="btn btn-primary" onClick={() => randomFromPlaylist(p)}>Random</button>
+                <button className="btn btn-primary" onClick={() => blindRandomFromPlaylist(p)}>Random</button>
               </div>
             </li>
           ))}
@@ -343,15 +339,8 @@ function AlbumBrowser({
     finally { setLoading(false) }
   }
 
-  const randomFromAlbum = async (a: Album) => {
-    setLoading(true); setError(null)
-    try {
-      const tracks = await api.albumTracks(a.id)
-      if (!tracks.length) { setError('That album has no tracks'); return }
-      const pick = tracks[Math.floor(Math.random() * tracks.length)]
-      startQuiz(navigate, pick, { kind: 'album', id: a.id, name: a.name, tracks })
-    } catch (e) { setError(String(e)) }
-    finally { setLoading(false) }
+  const blindRandomFromAlbum = (a: Album) => {
+    navigate(`/quiz?blind=1&source=album:${encodeURIComponent(a.id)}&t=${Date.now()}`)
   }
 
   if (active) {
@@ -360,7 +349,10 @@ function AlbumBrowser({
       <>
         <div className="row between">
           <h2>{active.album.name}</h2>
-          <button className="btn btn-ghost" onClick={() => setActive(null)}>← Back to albums</button>
+          <div className="row gap">
+            <button className="btn btn-primary" onClick={() => blindRandomFromAlbum(active.album)}>Random</button>
+            <button className="btn btn-ghost" onClick={() => setActive(null)}>← Back to albums</button>
+          </div>
         </div>
         <p className="muted small">{active.album.artist} · Played {played} / {active.tracks.length} songs in this album.</p>
         <TrackList
@@ -392,7 +384,7 @@ function AlbumBrowser({
               <PlayCountBadge stats={playStats[a.id]} loading={!tracksReady} />
               <div className="row gap">
                 <button className="btn" onClick={() => openAlbum(a)}>Browse</button>
-                <button className="btn btn-primary" onClick={() => randomFromAlbum(a)}>Random</button>
+                <button className="btn btn-primary" onClick={() => blindRandomFromAlbum(a)}>Random</button>
               </div>
             </li>
           ))}
@@ -476,7 +468,15 @@ function SearchTab({ navigate, bestScores }: { navigate: Nav; bestScores: BestSc
         <>
           <div className="row between">
             <h2>{activeAlbum.album.name}</h2>
-            <button className="btn btn-ghost" onClick={() => setActiveAlbum(null)}>← Back to results</button>
+            <div className="row gap">
+              <button
+                className="btn btn-primary"
+                onClick={() => navigate(`/quiz?blind=1&source=album:${encodeURIComponent(activeAlbum.album.id)}&t=${Date.now()}`)}
+              >
+                Random
+              </button>
+              <button className="btn btn-ghost" onClick={() => setActiveAlbum(null)}>← Back to results</button>
+            </div>
           </div>
           <p className="muted small">{activeAlbum.album.artist}</p>
           <TrackList

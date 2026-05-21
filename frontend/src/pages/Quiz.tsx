@@ -81,8 +81,22 @@ export default function Quiz() {
       try {
         let song: { title: string; artist: string; trackId: string }
         if (blind) {
-          const t = await api.randomFromTop()
-          song = { title: t.name, artist: t.artist, trackId: t.id }
+          let pick: Track
+          if (sourceRaw) {
+            // Blind random from a specific playlist or album.
+            const [kind, id] = sourceRaw.split(':', 2)
+            const tracks =
+              kind === 'playlist'
+                ? await api.playlistTracks(id)
+                : kind === 'album'
+                  ? await api.albumTracks(id)
+                  : []
+            if (!tracks.length) throw new Error('No tracks in this set')
+            pick = tracks[Math.floor(Math.random() * tracks.length)]
+          } else {
+            pick = await api.randomFromTop()
+          }
+          song = { title: pick.name, artist: pick.artist, trackId: pick.id }
         } else {
           if (!urlTitle || !urlArtist) {
             throw new Error('Missing title or artist')
@@ -141,10 +155,15 @@ export default function Quiz() {
     let cancelled = false
     const loadNext = async () => {
       if (blind) {
-        // Just nudge user to start another random — no specific track to show.
+        let label = 'Another blind quiz'
+        if (sourceRaw) {
+          const [kind] = sourceRaw.split(':', 2)
+          if (kind === 'playlist') label = 'Another random from this playlist'
+          else if (kind === 'album') label = 'Another random from this album'
+        }
         if (!cancelled) setNextInfo({
-          track: { id: '', name: 'another random song', artist: '', album: null, image: null, preview_url: null, uri: '' },
-          label: 'Another blind quiz',
+          track: { id: '', name: '', artist: '', album: null, image: null, preview_url: null, uri: '' },
+          label,
         })
         return
       }
@@ -242,7 +261,9 @@ export default function Quiz() {
 
   const goToNext = () => {
     if (blind) {
-      navigate(`/quiz?blind=1&t=${Date.now()}`)
+      const params = new URLSearchParams({ blind: '1', t: String(Date.now()) })
+      if (sourceRaw) params.set('source', sourceRaw)
+      navigate(`/quiz?${params.toString()}`)
       return
     }
     if (!nextInfo || !nextInfo.track.id) return
