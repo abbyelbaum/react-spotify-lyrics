@@ -25,6 +25,40 @@ _EMBED_RE = re.compile(r"\d*Embed\s*$", re.IGNORECASE)
 _YOU_MIGHT_ALSO_LIKE_RE = re.compile(r"You might also like", re.IGNORECASE)
 _SECTION_RE = re.compile(r"\[[^\]]+\]")
 
+# Some lyric sources sprinkle non-Latin lookalike characters (Cyrillic/Greek)
+# inside otherwise English words as an anti-scraping tactic — they render
+# identical but break tokenization. Translate the common ones back to Latin.
+_HOMOGLYPHS = str.maketrans({
+    # Cyrillic -> Latin
+    "а": "a", "А": "A",
+    "е": "e", "Е": "E",
+    "о": "o", "О": "O",
+    "с": "c", "С": "C",
+    "р": "p", "Р": "P",
+    "х": "x", "Х": "X",
+    "у": "y", "У": "Y",
+    "і": "i", "І": "I",
+    "ј": "j", "Ј": "J",
+    "ѕ": "s", "Ѕ": "S",
+    "ԁ": "d",
+    "ʟ": "L",
+    # Greek -> Latin
+    "ο": "o", "Ο": "O",
+    "α": "a", "Α": "A",
+    "ε": "e", "Ε": "E",
+    "ρ": "p", "Ρ": "P",
+    "τ": "t", "Τ": "T",
+    "κ": "k", "Κ": "K",
+    "χ": "x", "Χ": "X",
+    "ν": "v", "Ν": "N",
+    "ι": "i", "Ι": "I",
+    "η": "n", "Η": "H",
+    "μ": "u", "Μ": "M",
+    # Fullwidth ASCII -> ASCII
+    **{chr(0xFF21 + i): chr(0x41 + i) for i in range(26)},   # Ａ-Ｚ
+    **{chr(0xFF41 + i): chr(0x61 + i) for i in range(26)},   # ａ-ｚ
+})
+
 # Spotify often appends qualifier suffixes (e.g. " - 2023 Remaster", " - Remastered",
 # "(Live at …)", " - Radio Edit") that don't appear on Genius's title for the same
 # song. Stripping them before searching dramatically improves the match rate.
@@ -101,6 +135,8 @@ def _clean_lyrics(text: str) -> str:
     text = _SECTION_RE.sub("", text)
     text = _YOU_MIGHT_ALSO_LIKE_RE.sub("", text)
     text = _EMBED_RE.sub("", text).strip()
+    # Scrub anti-scraping homoglyphs so identical-looking words tokenize identically.
+    text = text.translate(_HOMOGLYPHS)
     # Collapse 3+ newlines into 2 for readability
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
