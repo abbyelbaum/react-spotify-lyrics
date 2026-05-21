@@ -128,7 +128,7 @@
 
 .lyrics-wrap { position: relative; }
 .lyrics {
-  max-height: 50vh;
+  max-height: 70vh;
   overflow-y: auto;
   padding: 16px;
   border: 1px solid var(--border);
@@ -136,7 +136,7 @@
   background: var(--code-bg);
   font-family: var(--mono);
   font-size: 16px;
-  line-height: 200%;
+  line-height: 175%;
   letter-spacing: 0;
 }
 .lyrics-paused { filter: blur(8px); pointer-events: none; user-select: none; }
@@ -164,13 +164,17 @@
 .pause-card h2 { margin: 0; }
 .lyrics-line { min-height: 1.6em; white-space: pre-wrap; }
 .word { display: inline-block; padding: 0 2px; border-radius: 3px; }
-.word-blank { color: var(--text); letter-spacing: 1px; }
-.word-correct { color: var(--text-h); background: rgba(46, 204, 113, 0.15); }
-.word-missed { color: #ff5454; background: rgba(192, 57, 43, 0.12); }
-.word-skipped { color: #c0392b; background: rgba(192, 57, 43, 0.12); text-decoration: line-through; }
-.word-current { color: var(--accent); background: var(--accent-bg); outline: 2px solid var(--accent-border); }
+/* Width must stay identical across blank, correct, and missed so the layout
+ * doesn't reflow when a word fills in. Since the font is monospace and the
+ * blank uses the same N characters of underscores, the only thing that can
+ * shift it is letter-spacing — keep it 0 on every state. */
+.word-blank { color: var(--text); letter-spacing: 0; }
+.word-correct { color: var(--text-h); background: rgba(46, 204, 113, 0.15); letter-spacing: 0; }
+.word-missed { color: #ff5454; background: rgba(192, 57, 43, 0.12); letter-spacing: 0; }
+.word-skipped { color: #c0392b; background: rgba(192, 57, 43, 0.12); text-decoration: line-through; letter-spacing: 0; }
+.word-current { color: var(--accent); background: var(--accent-bg); outline: 2px solid var(--accent-border); letter-spacing: 0; }
 .word-typed { color: var(--accent); }
-.word-rest { color: var(--text); letter-spacing: 1px; }
+.word-rest { color: var(--text); letter-spacing: 0; }
 
 .quiz-controls {
   display: flex;

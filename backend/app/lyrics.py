@@ -25,6 +25,74 @@ _EMBED_RE = re.compile(r"\d*Embed\s*$", re.IGNORECASE)
 _YOU_MIGHT_ALSO_LIKE_RE = re.compile(r"You might also like", re.IGNORECASE)
 _SECTION_RE = re.compile(r"\[[^\]]+\]")
 
+# Spotify often appends qualifier suffixes (e.g. " - 2023 Remaster", " - Remastered",
+# "(Live at …)", " - Radio Edit") that don't appear on Genius's title for the same
+# song. Stripping them before searching dramatically improves the match rate.
+_TITLE_SUFFIX_RE = re.compile(
+    r"""
+    \s*
+    [-\(]                                       # dash or open paren
+    \s*
+    (?:\d{4}\s+)?                                # optional leading year
+    (?:
+        Remaster(?:ed)?(?:\s+\d{4})?         |
+        Mono(?:\s+Version)?                  |
+        Stereo(?:\s+Version)?                |
+        Bonus(?:\s+Track)?                   |
+        Single\s+Version                     |
+        Album\s+Version                      |
+        Radio\s+(?:Edit|Version)             |
+        \d{4}\s+Mix                          |
+        Original\s+(?:Mix|Version)           |
+        Extended\s+(?:Mix|Version)           |
+        Acoustic(?:\s+Version)?              |
+        Live(?:\s+(?:at|from|in)\s[^\)\-]+)? |
+        Demo(?:\s+Version)?                  |
+        Deluxe(?:\s+Edition)?
+    )
+    [^\)\-]*                                 # the rest of the qualifier
+    \)?
+    \s*$
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+_FEAT_RE = re.compile(
+    r"\s*[\(\[](?:feat\.?|ft\.?|featuring|with)\s[^\)\]]*[\)\]]",
+    re.IGNORECASE,
+)
+
+
+def _clean_title_for_search(title: str) -> str:
+    cleaned = _TITLE_SUFFIX_RE.sub("", title)
+    cleaned = _FEAT_RE.sub("", cleaned)
+    cleaned = cleaned.rstrip(" -").strip()
+    return cleaned or title
+
+
+def _clean_artist_for_search(artist: str) -> str:
+    # Spotify joins multiple artists with ", "; Genius expects just the primary.
+    return artist.split(",")[0].strip()
+
+
+def _norm_for_compare(s: str) -> str:
+    nfkd = unicodedata.normalize("NFKD", s or "")
+    stripped = "".join(c for c in nfkd if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9]+", "", stripped.lower())
+
+
+def _is_plausible_match(
+    returned_title: str, returned_artist: str,
+    want_title: str, want_artist: str,
+) -> bool:
+    rt, ra = _norm_for_compare(returned_title), _norm_for_compare(returned_artist)
+    wt, wa = _norm_for_compare(want_title), _norm_for_compare(want_artist)
+    if not rt or not ra or not wt or not wa:
+        return False
+    title_ok = wt in rt or rt in wt
+    artist_ok = wa in ra or ra in wa
+    return title_ok and artist_ok
+
 
 def _clean_lyrics(text: str) -> str:
     if not text:
@@ -80,12 +148,24 @@ def tokenize(lyrics: str) -> list[dict]:
 
 @lru_cache(maxsize=256)
 def _fetch_lyrics_sync(title: str, artist: str) -> str:
+    clean_title = _clean_title_for_search(title)
+    clean_artist = _clean_artist_for_search(artist)
     try:
-        song = _genius.search_song(title, artist)
+        song = _genius.search_song(clean_title, clean_artist)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Genius lookup failed: {e}")
     if song is None or not getattr(song, "lyrics", None):
         raise HTTPException(status_code=404, detail=f"No lyrics found for '{title}' by '{artist}'")
+    returned_title = getattr(song, "title", "") or ""
+    returned_artist = getattr(song, "artist", "") or ""
+    if not _is_plausible_match(returned_title, returned_artist, clean_title, clean_artist):
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Genius returned a non-matching page for '{title}' by '{artist}' "
+                f"(got '{returned_title}' by '{returned_artist}')"
+            ),
+        )
     return _clean_lyrics(song.lyrics)
 
 
