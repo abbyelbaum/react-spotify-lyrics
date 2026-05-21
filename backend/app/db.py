@@ -39,6 +39,34 @@ def init_db() -> None:
                 ON attempts(track_id, score DESC);
             """
         )
+        _add_column_if_missing(con, "attempts", "source_kind", "TEXT")
+        _add_column_if_missing(con, "attempts", "source_id", "TEXT")
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS idx_attempts_source "
+            "ON attempts(spotify_user_id, source_kind, source_id, created_at DESC)"
+        )
+
+        # Track-ID cache for playlists & albums. Keyed by snapshot so a stale
+        # row is just ignored next time (playlist contents changed -> miss).
+        # For albums (immutable), snapshot_id is set to the album id.
+        con.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS set_tracks_cache (
+                kind         TEXT NOT NULL,
+                set_id       TEXT NOT NULL,
+                snapshot_id  TEXT NOT NULL,
+                track_ids    TEXT NOT NULL,
+                updated_at   INTEGER NOT NULL,
+                PRIMARY KEY (kind, set_id, snapshot_id)
+            );
+            """
+        )
+
+
+def _add_column_if_missing(con: sqlite3.Connection, table: str, column: str, decl: str) -> None:
+    cols = {row[1] for row in con.execute(f"PRAGMA table_info({table})")}
+    if column not in cols:
+        con.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
 
 
 @contextmanager
@@ -100,18 +128,22 @@ def record_attempt(
     words_total: int,
     duration_seconds: int,
     score: int,
+    source_kind: str | None = None,
+    source_id: str | None = None,
 ) -> int:
     with connect() as con:
         cur = con.execute(
             """
             INSERT INTO attempts
               (spotify_user_id, track_id, track_name, artist,
-               words_correct, words_total, duration_seconds, score, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+               words_correct, words_total, duration_seconds, score, created_at,
+               source_kind, source_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 spotify_user_id, track_id, track_name, artist,
                 words_correct, words_total, duration_seconds, score, int(time.time()),
+                source_kind, source_id,
             ),
         )
         return cur.lastrowid
@@ -130,6 +162,42 @@ def list_user_attempts(spotify_user_id: str, limit: int = 50) -> list[sqlite3.Ro
         ).fetchall()
 
 
+def last_played_sets_by_user(spotify_user_id: str) -> dict[str, int]:
+    """Map of '<kind>:<id>' -> most recent attempt timestamp, for attempts
+    that recorded a source playlist or album. Lets the frontend sort the
+    playlist/album lists by recency without enumerating each set's tracks.
+    """
+    with connect() as con:
+        rows = con.execute(
+            """
+            SELECT source_kind || ':' || source_id AS key,
+                   MAX(created_at) AS last_at
+            FROM attempts
+            WHERE spotify_user_id = ?
+              AND source_kind IS NOT NULL
+              AND source_id IS NOT NULL
+            GROUP BY source_kind, source_id
+            """,
+            (spotify_user_id,),
+        ).fetchall()
+    return {r["key"]: int(r["last_at"]) for r in rows}
+
+
+def last_played_by_user(spotify_user_id: str) -> dict[str, int]:
+    """Map of track_id -> most recent attempt timestamp (unix seconds)."""
+    with connect() as con:
+        rows = con.execute(
+            """
+            SELECT track_id, MAX(created_at) AS last_played
+            FROM attempts
+            WHERE spotify_user_id = ?
+            GROUP BY track_id
+            """,
+            (spotify_user_id,),
+        ).fetchall()
+    return {r["track_id"]: int(r["last_played"]) for r in rows}
+
+
 def best_percent_by_user(spotify_user_id: str) -> dict[str, int]:
     """Map of track_id -> best percentage (0-100, rounded) for this user."""
     with connect() as con:
@@ -144,6 +212,31 @@ def best_percent_by_user(spotify_user_id: str) -> dict[str, int]:
             (spotify_user_id,),
         ).fetchall()
     return {r["track_id"]: round(float(r["best_pct"]) * 100) for r in rows}
+
+
+def get_cached_set_tracks(kind: str, set_id: str, snapshot_id: str) -> list[str] | None:
+    """Return the cached list of track IDs for a (playlist|album, snapshot) pair, or None."""
+    with connect() as con:
+        row = con.execute(
+            "SELECT track_ids FROM set_tracks_cache "
+            "WHERE kind = ? AND set_id = ? AND snapshot_id = ?",
+            (kind, set_id, snapshot_id),
+        ).fetchone()
+    if row is None:
+        return None
+    import json
+    return json.loads(row["track_ids"])
+
+
+def cache_set_tracks(kind: str, set_id: str, snapshot_id: str, track_ids: list[str]) -> None:
+    import json
+    with connect() as con:
+        con.execute(
+            "INSERT OR REPLACE INTO set_tracks_cache "
+            "(kind, set_id, snapshot_id, track_ids, updated_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (kind, set_id, snapshot_id, json.dumps(track_ids), int(time.time())),
+        )
 
 
 def top_scores_for_track(track_id: str, limit: int = 10) -> list[sqlite3.Row]:

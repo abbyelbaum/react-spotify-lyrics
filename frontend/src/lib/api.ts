@@ -14,6 +14,7 @@ export type Playlist = {
   owner: string | null
   image: string | null
   tracks_total: number
+  snapshot_id?: string | null
 }
 
 export type Album = {
@@ -108,6 +109,8 @@ export const api = {
     words_correct: number
     words_total: number
     duration_seconds: number
+    source_kind?: string | null
+    source_id?: string | null
   }) =>
     request<{ id: number; score: number }>('/api/attempts', {
       method: 'POST',
@@ -120,6 +123,14 @@ export const api = {
       `/api/scores/track/${encodeURIComponent(trackId)}`,
     ),
   bestScores: () => request<Record<string, number>>('/api/best-scores'),
+  lastPlayed: () => request<Record<string, number>>('/api/last-played'),
+  lastPlayedSets: () => request<Record<string, number>>('/api/last-played-sets'),
+
+  setTracks: (kind: 'playlist' | 'album', items: { id: string; snapshot_id?: string | null }[]) =>
+    request<Record<string, string[]>>('/api/set-tracks', {
+      method: 'POST',
+      body: JSON.stringify({ kind, items }),
+    }),
 }
 
 export function normalizeWord(word: string): string {

@@ -237,6 +237,7 @@
 
 /* Search */
 .search-bar { margin: 16px 0; }
+.library-filter { margin: 16px 0 8px; }
 .search-input {
   flex: 1;
   padding: 10px 14px;

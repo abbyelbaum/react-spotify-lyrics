@@ -1,3 +1,4 @@
+import asyncio
 import random
 import time
 
@@ -136,6 +137,8 @@ class AttemptIn(BaseModel):
     words_correct: int
     words_total: int
     duration_seconds: int
+    source_kind: str | None = None
+    source_id: str | None = None
 
 
 @app.post("/api/attempts")
@@ -151,6 +154,8 @@ def api_attempts(payload: AttemptIn, request: Request):
         words_total=payload.words_total,
         duration_seconds=payload.duration_seconds,
         score=score,
+        source_kind=payload.source_kind,
+        source_id=payload.source_id,
     )
     return {"id": attempt_id, "score": score}
 
@@ -173,6 +178,68 @@ def api_top_scores(track_id: str, request: Request, limit: int = 10):
 def api_best_scores(request: Request):
     uid = auth.current_user_id(request)
     return db.best_percent_by_user(uid)
+
+
+@app.get("/api/last-played")
+def api_last_played(request: Request):
+    uid = auth.current_user_id(request)
+    return db.last_played_by_user(uid)
+
+
+@app.get("/api/last-played-sets")
+def api_last_played_sets(request: Request):
+    uid = auth.current_user_id(request)
+    return db.last_played_sets_by_user(uid)
+
+
+class SetTracksItem(BaseModel):
+    id: str
+    snapshot_id: str | None = None
+
+
+class SetTracksIn(BaseModel):
+    kind: str  # "playlist" | "album"
+    items: list[SetTracksItem]
+
+
+@app.post("/api/set-tracks")
+async def api_set_tracks(payload: SetTracksIn, request: Request):
+    """Return {set_id: [track_ids...]} for a batch of playlists or albums.
+    Hits Spotify only for cache misses; misses are throttled (5 concurrent)."""
+    if payload.kind not in ("playlist", "album"):
+        raise HTTPException(status_code=400, detail="kind must be 'playlist' or 'album'")
+    _, access_token = await auth.get_valid_access_token(request)
+
+    result: dict[str, list[str]] = {}
+    misses: list[tuple[str, str]] = []  # (set_id, snapshot_id)
+    for item in payload.items:
+        # Albums are immutable; cache them under their own id as snapshot.
+        snapshot = item.snapshot_id or (item.id if payload.kind == "album" else "")
+        cached = db.get_cached_set_tracks(payload.kind, item.id, snapshot)
+        if cached is not None:
+            result[item.id] = cached
+        else:
+            misses.append((item.id, snapshot))
+
+    if misses:
+        sem = asyncio.Semaphore(5)
+
+        async def fetch_one(set_id: str, snapshot: str) -> tuple[str, list[str]]:
+            async with sem:
+                try:
+                    if payload.kind == "playlist":
+                        ids = await spotify.get_playlist_track_ids(access_token, set_id)
+                    else:
+                        ids = await spotify.get_album_track_ids(access_token, set_id)
+                except HTTPException:
+                    return set_id, []
+                db.cache_set_tracks(payload.kind, set_id, snapshot, ids)
+                return set_id, ids
+
+        for set_id, ids in await asyncio.gather(*[fetch_one(s, sn) for s, sn in misses]):
+            result[set_id] = ids
+
+    return result
 
 
 @app.get("/api/health")

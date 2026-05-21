@@ -186,6 +186,7 @@ export default function Quiz() {
     const words_correct = finalFilled.filter(Boolean).length
     const duration_seconds = Math.max(0, Math.floor(computeElapsedMs() / 1000))
     setStatus('done')
+    const [sourceKind, sourceId] = sourceRaw ? sourceRaw.split(':', 2) : [null, null]
     try {
       const result = await api.submitAttempt({
         track_id: songInfo.trackId,
@@ -194,6 +195,8 @@ export default function Quiz() {
         words_correct,
         words_total: totalWords,
         duration_seconds,
+        source_kind: sourceKind,
+        source_id: sourceId,
       })
       setFinalScore(result.score)
     } catch (e) {

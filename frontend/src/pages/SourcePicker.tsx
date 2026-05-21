@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, type Album, type Playlist, type Track } from '../lib/api'
 
@@ -14,14 +14,31 @@ type SetContext =
   | { kind: 'playlist'; id: string; name: string; tracks: Track[] }
   | { kind: 'album'; id: string; name: string; tracks: Track[] }
 
+type BestScores = Record<string, number>
+type LastPlayed = Record<string, number>
+type PlayStats = { played: number; total: number; lastPlayedAt: number | null }
+
 export default function SourcePicker() {
   const navigate = useNavigate()
   const [mode, setMode] = useState<Mode>('top')
-  const [bestScores, setBestScores] = useState<Record<string, number>>({})
+  const [bestScores, setBestScores] = useState<BestScores>({})
+  const [lastPlayed, setLastPlayed] = useState<LastPlayed>({})
+  const [statsReady, setStatsReady] = useState(false)
 
   useEffect(() => {
-    api.bestScores().then(setBestScores).catch(() => {/* ok if empty */})
+    Promise.all([api.bestScores(), api.lastPlayed()])
+      .then(([best, last]) => { setBestScores(best); setLastPlayed(last) })
+      .catch(() => {/* ok if empty */})
+      .finally(() => setStatsReady(true))
   }, [])
+
+  if (!statsReady) {
+    return (
+      <div className="page page-center">
+        <p className="muted">Loading…</p>
+      </div>
+    )
+  }
 
   return (
     <div className="page">
@@ -40,14 +57,12 @@ export default function SourcePicker() {
       </nav>
 
       {mode === 'top' && <TopTracks navigate={navigate} bestScores={bestScores} />}
-      {mode === 'playlists' && <PlaylistBrowser navigate={navigate} bestScores={bestScores} />}
-      {mode === 'albums' && <AlbumBrowser navigate={navigate} bestScores={bestScores} />}
+      {mode === 'playlists' && <PlaylistBrowser navigate={navigate} bestScores={bestScores} lastPlayed={lastPlayed} />}
+      {mode === 'albums' && <AlbumBrowser navigate={navigate} bestScores={bestScores} lastPlayed={lastPlayed} />}
       {mode === 'search' && <SearchTab navigate={navigate} bestScores={bestScores} />}
     </div>
   )
 }
-
-type BestScores = Record<string, number>
 
 type Nav = ReturnType<typeof useNavigate>
 
@@ -108,17 +123,101 @@ function TopTracks({ navigate, bestScores }: { navigate: Nav; bestScores: BestSc
   )
 }
 
-function PlaylistBrowser({ navigate, bestScores }: { navigate: Nav; bestScores: BestScores }) {
+// Given a {set_id: track_ids[]} map plus per-track stats, compute the
+// "Played: X / Y" + recency stats for each set.
+function computePlayStats(
+  setTracks: Record<string, string[]>,
+  bestScores: BestScores,
+  lastPlayed: LastPlayed,
+): Record<string, PlayStats> {
+  const out: Record<string, PlayStats> = {}
+  for (const setId in setTracks) {
+    const ids = setTracks[setId]
+    let played = 0
+    let lastPlayedAt: number | null = null
+    for (const t of ids) {
+      if (bestScores[t] !== undefined) played++
+      const lp = lastPlayed[t]
+      if (lp !== undefined && (lastPlayedAt === null || lp > lastPlayedAt)) {
+        lastPlayedAt = lp
+      }
+    }
+    out[setId] = { played, total: ids.length, lastPlayedAt }
+  }
+  return out
+}
+
+function sortByRecency<T extends { id: string }>(items: T[], stats: Record<string, PlayStats>): T[] {
+  return [...items].sort((a, b) => {
+    const ta = stats[a.id]?.lastPlayedAt ?? -Infinity
+    const tb = stats[b.id]?.lastPlayedAt ?? -Infinity
+    return tb - ta
+  })
+}
+
+function filterByName(text: string, fields: (string | null | undefined)[]): boolean {
+  if (!text) return true
+  const needle = text.toLowerCase().trim()
+  return fields.some((f) => f && f.toLowerCase().includes(needle))
+}
+
+function PlayCountBadge({ stats, loading }: { stats?: PlayStats; loading?: boolean }) {
+  if (loading) return <span className="best-score">…</span>
+  if (!stats || stats.total === 0) return null
+  const isAll = stats.played === stats.total
+  return (
+    <span className={isAll ? 'best-score best-score-perfect' : 'best-score'}>
+      Played: {stats.played} / {stats.total}
+    </span>
+  )
+}
+
+function PlaylistBrowser({
+  navigate,
+  bestScores,
+  lastPlayed,
+}: {
+  navigate: Nav
+  bestScores: BestScores
+  lastPlayed: LastPlayed
+}) {
   const [playlists, setPlaylists] = useState<Playlist[] | null>(null)
+  const [setTracks, setSetTracks] = useState<Record<string, string[]>>({})
+  const [tracksReady, setTracksReady] = useState(false)
   const [active, setActive] = useState<{ playlist: Playlist; tracks: Track[] } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [filter, setFilter] = useState('')
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true)
     api.playlists().then(setPlaylists).catch((e) => setError(String(e))).finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    if (!playlists) return
+    let cancelled = false
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setTracksReady(false)
+    api
+      .setTracks('playlist', playlists.map((p) => ({ id: p.id, snapshot_id: p.snapshot_id })))
+      .then((map) => { if (!cancelled) setSetTracks(map) })
+      .catch(() => { /* leave badges empty on failure */ })
+      .finally(() => { if (!cancelled) setTracksReady(true) })
+    return () => { cancelled = true }
+  }, [playlists])
+
+  const playStats = useMemo(
+    () => computePlayStats(setTracks, bestScores, lastPlayed),
+    [setTracks, bestScores, lastPlayed],
+  )
+
+  const visiblePlaylists = useMemo(() => {
+    if (!playlists) return null
+    const sorted = tracksReady ? sortByRecency(playlists, playStats) : playlists
+    return sorted.filter((p) => filterByName(filter, [p.name, p.owner]))
+  }, [playlists, playStats, tracksReady, filter])
 
   const openPlaylist = async (p: Playlist) => {
     setLoading(true); setError(null)
@@ -141,12 +240,14 @@ function PlaylistBrowser({ navigate, bestScores }: { navigate: Nav; bestScores: 
   }
 
   if (active) {
+    const played = active.tracks.filter((t) => bestScores[t.id] !== undefined).length
     return (
       <>
         <div className="row between">
           <h2>{active.playlist.name}</h2>
           <button className="btn btn-ghost" onClick={() => setActive(null)}>← Back to playlists</button>
         </div>
+        <p className="muted small">Played {played} / {active.tracks.length} songs in this playlist.</p>
         <TrackList
           tracks={active.tracks}
           bestScores={bestScores}
@@ -158,17 +259,22 @@ function PlaylistBrowser({ navigate, bestScores }: { navigate: Nav; bestScores: 
 
   return (
     <>
+      <LibraryFilter value={filter} onChange={setFilter} placeholder="Filter your playlists…" />
       {error && <p className="error">{error}</p>}
       {loading && <p className="muted">Loading…</p>}
-      {playlists && (
+      {visiblePlaylists && visiblePlaylists.length === 0 && (
+        <p className="muted">{filter ? 'No playlists match that filter.' : 'No playlists.'}</p>
+      )}
+      {visiblePlaylists && visiblePlaylists.length > 0 && (
         <ul className="list">
-          {playlists.map((p) => (
+          {visiblePlaylists.map((p) => (
             <li key={p.id} className="list-item">
               {p.image && <img src={p.image} alt="" className="thumb" />}
               <div className="list-body">
                 <div className="list-title">{p.name}</div>
                 <div className="muted small">{p.tracks_total} tracks · {p.owner}</div>
               </div>
+              <PlayCountBadge stats={playStats[p.id]} loading={!tracksReady} />
               <div className="row gap">
                 <button className="btn" onClick={() => openPlaylist(p)}>Browse</button>
                 <button className="btn btn-primary" onClick={() => randomFromPlaylist(p)}>Random</button>
@@ -181,17 +287,52 @@ function PlaylistBrowser({ navigate, bestScores }: { navigate: Nav; bestScores: 
   )
 }
 
-function AlbumBrowser({ navigate, bestScores }: { navigate: Nav; bestScores: BestScores }) {
+function AlbumBrowser({
+  navigate,
+  bestScores,
+  lastPlayed,
+}: {
+  navigate: Nav
+  bestScores: BestScores
+  lastPlayed: LastPlayed
+}) {
   const [albums, setAlbums] = useState<Album[] | null>(null)
+  const [setTracks, setSetTracks] = useState<Record<string, string[]>>({})
+  const [tracksReady, setTracksReady] = useState(false)
   const [active, setActive] = useState<{ album: Album; tracks: Track[] } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [filter, setFilter] = useState('')
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true)
     api.albums().then(setAlbums).catch((e) => setError(String(e))).finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    if (!albums) return
+    let cancelled = false
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setTracksReady(false)
+    api
+      .setTracks('album', albums.map((a) => ({ id: a.id })))
+      .then((map) => { if (!cancelled) setSetTracks(map) })
+      .catch(() => { /* leave badges empty on failure */ })
+      .finally(() => { if (!cancelled) setTracksReady(true) })
+    return () => { cancelled = true }
+  }, [albums])
+
+  const playStats = useMemo(
+    () => computePlayStats(setTracks, bestScores, lastPlayed),
+    [setTracks, bestScores, lastPlayed],
+  )
+
+  const visibleAlbums = useMemo(() => {
+    if (!albums) return null
+    const sorted = tracksReady ? sortByRecency(albums, playStats) : albums
+    return sorted.filter((a) => filterByName(filter, [a.name, a.artist]))
+  }, [albums, playStats, tracksReady, filter])
 
   const openAlbum = async (a: Album) => {
     setLoading(true); setError(null)
@@ -214,13 +355,14 @@ function AlbumBrowser({ navigate, bestScores }: { navigate: Nav; bestScores: Bes
   }
 
   if (active) {
+    const played = active.tracks.filter((t) => bestScores[t.id] !== undefined).length
     return (
       <>
         <div className="row between">
           <h2>{active.album.name}</h2>
           <button className="btn btn-ghost" onClick={() => setActive(null)}>← Back to albums</button>
         </div>
-        <p className="muted small">{active.album.artist}</p>
+        <p className="muted small">{active.album.artist} · Played {played} / {active.tracks.length} songs in this album.</p>
         <TrackList
           tracks={active.tracks}
           bestScores={bestScores}
@@ -232,18 +374,22 @@ function AlbumBrowser({ navigate, bestScores }: { navigate: Nav; bestScores: Bes
 
   return (
     <>
+      <LibraryFilter value={filter} onChange={setFilter} placeholder="Filter your albums…" />
       {error && <p className="error">{error}</p>}
       {loading && <p className="muted">Loading…</p>}
-      {albums && albums.length === 0 && <p className="muted">No saved albums.</p>}
-      {albums && (
+      {visibleAlbums && visibleAlbums.length === 0 && (
+        <p className="muted">{filter ? 'No albums match that filter.' : 'No saved albums.'}</p>
+      )}
+      {visibleAlbums && visibleAlbums.length > 0 && (
         <ul className="list">
-          {albums.map((a) => (
+          {visibleAlbums.map((a) => (
             <li key={a.id} className="list-item">
               {a.image && <img src={a.image} alt="" className="thumb" />}
               <div className="list-body">
                 <div className="list-title">{a.name}</div>
                 <div className="muted small">{a.artist}{a.tracks_total ? ` · ${a.tracks_total} tracks` : ''}</div>
               </div>
+              <PlayCountBadge stats={playStats[a.id]} loading={!tracksReady} />
               <div className="row gap">
                 <button className="btn" onClick={() => openAlbum(a)}>Browse</button>
                 <button className="btn btn-primary" onClick={() => randomFromAlbum(a)}>Random</button>
@@ -253,6 +399,31 @@ function AlbumBrowser({ navigate, bestScores }: { navigate: Nav; bestScores: Bes
         </ul>
       )}
     </>
+  )
+}
+
+function LibraryFilter({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string
+  onChange: (v: string) => void
+  placeholder: string
+}) {
+  return (
+    <div className="row gap library-filter">
+      <input
+        className="search-input"
+        type="search"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+      />
+      {value && (
+        <button className="btn btn-ghost" onClick={() => onChange('')}>Clear</button>
+      )}
+    </div>
   )
 }
 

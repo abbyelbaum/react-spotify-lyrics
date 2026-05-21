@@ -51,6 +51,7 @@ async def get_user_playlists(access_token: str, limit: int = 50) -> list[dict]:
             "owner": (p.get("owner") or {}).get("display_name"),
             "image": (p.get("images") or [{}])[0].get("url") if p.get("images") else None,
             "tracks_total": (p.get("tracks") or {}).get("total", 0),
+            "snapshot_id": p.get("snapshot_id"),
         }
         for p in data.get("items", [])
         if p.get("id")
@@ -113,6 +114,47 @@ async def get_album_tracks(access_token: str, album_id: str) -> list[dict]:
             "uri": t.get("uri"),
         })
     return tracks
+
+
+async def get_playlist_track_ids(access_token: str, playlist_id: str) -> list[str]:
+    """Lighter than get_playlist_tracks — only the IDs, for cache population."""
+    ids: list[str] = []
+    offset = 0
+    while True:
+        data = await _get(
+            access_token,
+            f"/playlists/{playlist_id}/tracks",
+            {"limit": 100, "offset": offset, "fields": "items(track(id)),next"},
+        )
+        for item in data.get("items", []):
+            track = item.get("track") or {}
+            tid = track.get("id")
+            if tid:
+                ids.append(tid)
+        if not data.get("next"):
+            break
+        offset += 100
+    return ids
+
+
+async def get_album_track_ids(access_token: str, album_id: str) -> list[str]:
+    """Lighter than get_album_tracks — only the IDs."""
+    ids: list[str] = []
+    offset = 0
+    while True:
+        data = await _get(
+            access_token,
+            f"/albums/{album_id}/tracks",
+            {"limit": 50, "offset": offset},
+        )
+        for t in data.get("items", []):
+            tid = t.get("id")
+            if tid:
+                ids.append(tid)
+        if not data.get("next"):
+            break
+        offset += 50
+    return ids
 
 
 async def search(access_token: str, query: str, kinds: str = "track,album", limit: int = 20) -> dict:
