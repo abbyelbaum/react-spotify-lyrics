@@ -59,54 +59,7 @@ _HOMOGLYPHS = str.maketrans({
     **{chr(0xFF41 + i): chr(0x61 + i) for i in range(26)},   # ａ-ｚ
 })
 
-# Spotify often appends qualifier suffixes (e.g. " - 2023 Remaster", " - Remastered",
-# "(Live at …)", " - Radio Edit") that don't appear on Genius's title for the same
-# song. Stripping them before searching dramatically improves the match rate.
-_TITLE_SUFFIX_RE = re.compile(
-    r"""
-    \s*
-    [-\(]                                       # dash or open paren
-    \s*
-    (?:\d{4}\s+)?                                # optional leading year
-    (?:
-        Remaster(?:ed)?(?:\s+\d{4})?         |
-        Mono(?:\s+Version)?                  |
-        Stereo(?:\s+Version)?                |
-        Bonus(?:\s+Track)?                   |
-        Single\s+Version                     |
-        Album\s+Version                      |
-        Radio\s+(?:Edit|Version)             |
-        \d{4}\s+Mix                          |
-        Original\s+(?:Mix|Version)           |
-        Extended\s+(?:Mix|Version)           |
-        Acoustic(?:\s+Version)?              |
-        Live(?:\s+(?:at|from|in)\s[^\)\-]+)? |
-        Demo(?:\s+Version)?                  |
-        Deluxe(?:\s+Edition)?
-    )
-    [^\)\-]*                                 # the rest of the qualifier
-    \)?
-    \s*$
-    """,
-    re.IGNORECASE | re.VERBOSE,
-)
-
-_FEAT_RE = re.compile(
-    r"\s*[\(\[](?:feat\.?|ft\.?|featuring|with)\s[^\)\]]*[\)\]]",
-    re.IGNORECASE,
-)
-
-
-def _clean_title_for_search(title: str) -> str:
-    cleaned = _TITLE_SUFFIX_RE.sub("", title)
-    cleaned = _FEAT_RE.sub("", cleaned)
-    cleaned = cleaned.rstrip(" -").strip()
-    return cleaned or title
-
-
-def _clean_artist_for_search(artist: str) -> str:
-    # Spotify joins multiple artists with ", "; Genius expects just the primary.
-    return artist.split(",")[0].strip()
+from .song import clean_title as _clean_title_for_search, primary_artist as _clean_artist_for_search
 
 
 def _norm_for_compare(s: str) -> str:

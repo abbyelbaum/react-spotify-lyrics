@@ -1,6 +1,8 @@
 import httpx
 from fastapi import HTTPException
 
+from .song import song_key
+
 API_BASE = "https://api.spotify.com/v1"
 
 
@@ -116,30 +118,39 @@ async def get_album_tracks(access_token: str, album_id: str) -> list[dict]:
     return tracks
 
 
-async def get_playlist_track_ids(access_token: str, playlist_id: str) -> list[str]:
-    """Lighter than get_playlist_tracks — only the IDs, for cache population."""
-    ids: list[str] = []
+async def get_playlist_song_keys(access_token: str, playlist_id: str) -> list[str]:
+    """Returns ``song_key`` per track for cache population.
+
+    Using song_key (artist+title) instead of Spotify's track_id lets us match
+    plays of the same recording across different releases (single, album,
+    compilation), which all have distinct track_ids.
+    """
+    keys: list[str] = []
     offset = 0
     while True:
         data = await _get(
             access_token,
             f"/playlists/{playlist_id}/tracks",
-            {"limit": 100, "offset": offset, "fields": "items(track(id)),next"},
+            {
+                "limit": 100, "offset": offset,
+                "fields": "items(track(name,artists(name))),next",
+            },
         )
         for item in data.get("items", []):
             track = item.get("track") or {}
-            tid = track.get("id")
-            if tid:
-                ids.append(tid)
+            name = track.get("name")
+            artists = ", ".join(a.get("name", "") for a in (track.get("artists") or []))
+            if name and artists:
+                keys.append(song_key(name, artists))
         if not data.get("next"):
             break
         offset += 100
-    return ids
+    return keys
 
 
-async def get_album_track_ids(access_token: str, album_id: str) -> list[str]:
-    """Lighter than get_album_tracks — only the IDs."""
-    ids: list[str] = []
+async def get_album_song_keys(access_token: str, album_id: str) -> list[str]:
+    """Returns ``song_key`` per album track (see ``get_playlist_song_keys``)."""
+    keys: list[str] = []
     offset = 0
     while True:
         data = await _get(
@@ -148,13 +159,14 @@ async def get_album_track_ids(access_token: str, album_id: str) -> list[str]:
             {"limit": 50, "offset": offset},
         )
         for t in data.get("items", []):
-            tid = t.get("id")
-            if tid:
-                ids.append(tid)
+            name = t.get("name")
+            artists = ", ".join(a.get("name", "") for a in (t.get("artists") or []))
+            if name and artists:
+                keys.append(song_key(name, artists))
         if not data.get("next"):
             break
         offset += 50
-    return ids
+    return keys
 
 
 async def search(access_token: str, query: str, kinds: str = "track,album", limit: int = 20) -> dict:

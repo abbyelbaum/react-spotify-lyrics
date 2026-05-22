@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api, type Album, type Playlist, type Track } from '../lib/api'
+import { api, songKey, type Album, type Playlist, type Track } from '../lib/api'
 
 type Mode = 'top' | 'playlists' | 'albums' | 'search'
 
@@ -233,7 +233,7 @@ function PlaylistBrowser({
   }
 
   if (active) {
-    const played = active.tracks.filter((t) => bestScores[t.id] !== undefined).length
+    const played = active.tracks.filter((t) => bestScores[songKey(t.name, t.artist)] !== undefined).length
     return (
       <>
         <div className="row between">
@@ -344,7 +344,7 @@ function AlbumBrowser({
   }
 
   if (active) {
-    const played = active.tracks.filter((t) => bestScores[t.id] !== undefined).length
+    const played = active.tracks.filter((t) => bestScores[songKey(t.name, t.artist)] !== undefined).length
     return (
       <>
         <div className="row between">
@@ -536,7 +536,7 @@ function TrackList({
   return (
     <ul className="list">
       {tracks.map((t) => {
-        const best = bestScores?.[t.id]
+        const best = bestScores?.[songKey(t.name, t.artist)]
         return (
           <li key={t.id} className="list-item">
             {t.image && <img src={t.image} alt="" className="thumb" />}

@@ -228,9 +228,9 @@ async def api_set_tracks(payload: SetTracksIn, request: Request):
             async with sem:
                 try:
                     if payload.kind == "playlist":
-                        ids = await spotify.get_playlist_track_ids(access_token, set_id)
+                        ids = await spotify.get_playlist_song_keys(access_token, set_id)
                     else:
-                        ids = await spotify.get_album_track_ids(access_token, set_id)
+                        ids = await spotify.get_album_song_keys(access_token, set_id)
                 except HTTPException:
                     return set_id, []
                 db.cache_set_tracks(payload.kind, set_id, snapshot, ids)

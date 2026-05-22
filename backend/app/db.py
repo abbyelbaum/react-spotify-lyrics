@@ -3,6 +3,8 @@ import time
 from pathlib import Path
 from contextlib import contextmanager
 
+from .song import song_key
+
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "scores.db"
 
 
@@ -184,38 +186,58 @@ def last_played_sets_by_user(spotify_user_id: str) -> dict[str, int]:
 
 
 def last_played_by_user(spotify_user_id: str) -> dict[str, int]:
-    """Map of track_id -> most recent attempt timestamp (unix seconds)."""
+    """Map of song_key -> most recent attempt timestamp (unix seconds).
+    Keyed by song identity (artist+title) so the same recording across
+    different releases collapses into one entry."""
     with connect() as con:
         rows = con.execute(
             """
-            SELECT track_id, MAX(created_at) AS last_played
+            SELECT track_name, artist, MAX(created_at) AS last_played
             FROM attempts
             WHERE spotify_user_id = ?
-            GROUP BY track_id
+            GROUP BY track_name, artist
             """,
             (spotify_user_id,),
         ).fetchall()
-    return {r["track_id"]: int(r["last_played"]) for r in rows}
+    out: dict[str, int] = {}
+    for r in rows:
+        key = song_key(r["track_name"], r["artist"])
+        ts = int(r["last_played"])
+        if ts > out.get(key, 0):
+            out[key] = ts
+    return out
 
 
 def best_percent_by_user(spotify_user_id: str) -> dict[str, int]:
-    """Map of track_id -> best percentage (0-100, rounded) for this user."""
+    """Map of song_key -> best percentage (0-100, rounded) for this user.
+    See ``last_played_by_user`` for why we key on song identity, not track_id."""
     with connect() as con:
         rows = con.execute(
             """
-            SELECT track_id,
+            SELECT track_name, artist,
                    MAX(CAST(words_correct AS REAL) / words_total) AS best_pct
             FROM attempts
             WHERE spotify_user_id = ? AND words_total > 0
-            GROUP BY track_id
+            GROUP BY track_name, artist
             """,
             (spotify_user_id,),
         ).fetchall()
-    return {r["track_id"]: round(float(r["best_pct"]) * 100) for r in rows}
+    out: dict[str, int] = {}
+    for r in rows:
+        key = song_key(r["track_name"], r["artist"])
+        pct = round(float(r["best_pct"]) * 100)
+        if pct > out.get(key, -1):
+            out[key] = pct
+    return out
 
 
 def get_cached_set_tracks(kind: str, set_id: str, snapshot_id: str) -> list[str] | None:
-    """Return the cached list of track IDs for a (playlist|album, snapshot) pair, or None."""
+    """Return the cached list of song_keys for a (playlist|album, snapshot) pair.
+
+    Returns None for cache misses AND for stale rows in the legacy
+    track-id-only format (pre song_key migration). Stale rows are
+    silently overwritten the next time we cache for this set.
+    """
     with connect() as con:
         row = con.execute(
             "SELECT track_ids FROM set_tracks_cache "
@@ -225,17 +247,24 @@ def get_cached_set_tracks(kind: str, set_id: str, snapshot_id: str) -> list[str]
     if row is None:
         return None
     import json
-    return json.loads(row["track_ids"])
+    data = json.loads(row["track_ids"])
+    # Heuristic: new format entries are "artist|title"; legacy entries are
+    # bare Spotify track IDs (22-char base62, no pipe). Treat legacy as miss.
+    if not data:
+        return data
+    if "|" not in data[0]:
+        return None
+    return data
 
 
-def cache_set_tracks(kind: str, set_id: str, snapshot_id: str, track_ids: list[str]) -> None:
+def cache_set_tracks(kind: str, set_id: str, snapshot_id: str, song_keys: list[str]) -> None:
     import json
     with connect() as con:
         con.execute(
             "INSERT OR REPLACE INTO set_tracks_cache "
             "(kind, set_id, snapshot_id, track_ids, updated_at) "
             "VALUES (?, ?, ?, ?, ?)",
-            (kind, set_id, snapshot_id, json.dumps(track_ids), int(time.time())),
+            (kind, set_id, snapshot_id, json.dumps(song_keys), int(time.time())),
         )
 
 

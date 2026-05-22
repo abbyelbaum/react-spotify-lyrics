@@ -140,3 +140,45 @@ export function normalizeWord(word: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '')
 }
+
+// Mirrors backend/app/song.py: identifies a recording by primary-artist+title,
+// release-variant-insensitive. The same value the backend uses as a key for
+// best-scores and last-played, so client and server agree on what counts as
+// "the same song" across single / album / compilation releases.
+const _TITLE_SUFFIX_RE = new RegExp(
+  String.raw`\s*[-(]\s*(?:\d{4}\s+)?(?:` +
+    [
+      'Remaster(?:ed)?(?:\\s+\\d{4})?',
+      'Mono(?:\\s+Version)?',
+      'Stereo(?:\\s+Version)?',
+      'Bonus(?:\\s+Track)?',
+      'Single\\s+Version',
+      'Album\\s+Version',
+      'Radio\\s+(?:Edit|Version)',
+      '\\d{4}\\s+Mix',
+      'Original\\s+(?:Mix|Version)',
+      'Extended\\s+(?:Mix|Version)',
+      'Acoustic(?:\\s+Version)?',
+      'Live(?:\\s+(?:at|from|in)\\s[^)\\-]+)?',
+      'Demo(?:\\s+Version)?',
+      'Deluxe(?:\\s+Edition)?',
+    ].join('|') +
+    String.raw`)[^)\-]*\)?\s*$`,
+  'i',
+)
+const _FEAT_RE = /\s*[([](?:feat\.?|ft\.?|featuring|with)\s[^)\]]*[)\]]/i
+
+function _alnumLower(s: string): string {
+  return s
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '')
+}
+
+export function songKey(name: string, artist: string): string {
+  let title = (name || '').replace(_TITLE_SUFFIX_RE, '')
+  title = title.replace(_FEAT_RE, '').replace(/[\s-]+$/, '').trim()
+  const primary = (artist || '').split(',')[0].trim()
+  return `${_alnumLower(primary)}|${_alnumLower(title)}`
+}
