@@ -6,12 +6,8 @@
 # All other paths fall through to /index.html so client-side routing works
 # on refresh.
 #
-# Required environment variable (set in Netlify dashboard → Site settings
-# → Environment variables → "Build & deploy"):
-#
-#   BACKEND_URL = https://your-app-backend.onrender.com
-#
-# After setting it, redeploy.
+# The backend URL is hardcoded below. If you rename the Render service or
+# move to a different host, update both `to` values.
 
 [build]
   base    = "frontend"
@@ -22,13 +18,13 @@
 # server-side proxy), not redirects, so the URL stays on the Netlify domain.
 [[redirects]]
   from   = "/api/*"
-  to     = "${BACKEND_URL}/api/:splat"
+  to     = "https://react-spotify-lyrics-backend.onrender.com/api/:splat"
   status = 200
   force  = true
 
 [[redirects]]
   from   = "/auth/*"
-  to     = "${BACKEND_URL}/auth/:splat"
+  to     = "https://react-spotify-lyrics-backend.onrender.com/auth/:splat"
   status = 200
   force  = true
 
