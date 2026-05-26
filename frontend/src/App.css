@@ -214,15 +214,48 @@ button.brand {
 /* Scores */
 .scores-table {
   width: 100%;
-  border-collapse: collapse;
-  margin-top: 16px;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin-top: 24px;
+  font-variant-numeric: tabular-nums;
 }
 .scores-table th, .scores-table td {
   text-align: left;
-  padding: 10px 12px;
+  padding: 14px 16px;
   border-bottom: 1px solid var(--border);
 }
-.scores-table th { color: var(--text); font-weight: 500; font-size: 14px; }
+.scores-table th {
+  color: var(--text);
+  font-weight: 500;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--border);
+}
+.scores-table th.num,
+.scores-table td.num {
+  text-align: right;
+}
+.scores-table tbody tr:hover { background: var(--code-bg); }
+.scores-table .song-cell { color: var(--text-h); font-weight: 500; }
+
+.pct-pill {
+  display: inline-block;
+  min-width: 56px;
+  text-align: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  color: var(--text-h);
+  font-size: 14px;
+  font-weight: 600;
+}
+.pct-pill-perfect {
+  background: rgba(46, 204, 113, 0.85);
+  border-color: rgba(46, 204, 113, 0.85);
+  color: #fff;
+}
 
 #root { text-align: left; }
 

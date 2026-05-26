@@ -12,7 +12,7 @@
     rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
 
   --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
+  --heading: 'Bagel Fat One', system-ui, sans-serif;
   --mono: ui-monospace, Consolas, monospace;
 
   font: 18px/145% var(--sans);
@@ -66,20 +66,31 @@ body {
   margin: 0;
 }
 
-h1,
 h2 {
-  font-family: var(--heading);
+  font-family: var(--sans);
   font-weight: 500;
   color: var(--text-h);
 }
 
 h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
+  font-family: var(--heading);
+  font-size: 64px;
+  font-weight: 400;
+  letter-spacing: 0.5px;
+  /* Bagel Fat One has chunky bubble glyphs — needs a little room. */
+  line-height: 1.2;
+  padding-bottom: 0.1em;
+  margin: 24px 0 16px;
+  /* Same gradient as the brand button so every page title shares the
+   * site's visual identity. */
+  background: linear-gradient(135deg, var(--accent) 0%, #ff6db8 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  width: fit-content;
   @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
+    font-size: 48px;
+    margin: 16px 0 12px;
   }
 }
 h2 {
