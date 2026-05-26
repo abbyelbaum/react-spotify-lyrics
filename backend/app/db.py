@@ -1,17 +1,61 @@
+"""Storage layer.
+
+Auto-detects backend at import time:
+- ``DATABASE_URL`` env var set (postgres://… or postgresql://…) → Neon / Postgres
+  via ``psycopg``. Used in production.
+- ``DATABASE_URL`` unset → local SQLite file at ``backend/data/scores.db``.
+  Used in dev so you don't need a Postgres install.
+
+All query strings use ``?`` placeholders (SQLite native); a small helper
+translates them to ``%s`` for Postgres. Same goes for the schema — the
+auto-increment id is the only real syntactic difference.
+"""
+import json
+import os
 import sqlite3
 import time
-from pathlib import Path
 from contextlib import contextmanager
+from pathlib import Path
 
 from .song import song_key
 
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+IS_POSTGRES = DATABASE_URL.startswith(("postgres://", "postgresql://"))
+
+if IS_POSTGRES:
+    import psycopg
+    from psycopg.rows import dict_row
+
+# Only used when DATABASE_URL is unset (local dev). On Render free with
+# Postgres in production, this path is never touched.
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "scores.db"
 
 
+def _q(sql: str) -> str:
+    """Translate ? placeholders to %s for Postgres; pass through for SQLite."""
+    return sql.replace("?", "%s") if IS_POSTGRES else sql
+
+
+@contextmanager
+def connect():
+    if IS_POSTGRES:
+        con = psycopg.connect(DATABASE_URL, row_factory=dict_row)
+    else:
+        con = sqlite3.connect(DB_PATH)
+        con.row_factory = sqlite3.Row
+    try:
+        yield con
+        con.commit()
+    finally:
+        con.close()
+
+
 def init_db() -> None:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if not IS_POSTGRES:
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    autoinc_pk = "BIGSERIAL PRIMARY KEY" if IS_POSTGRES else "INTEGER PRIMARY KEY AUTOINCREMENT"
     with connect() as con:
-        con.executescript(
+        con.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
                 spotify_user_id TEXT PRIMARY KEY,
@@ -20,10 +64,13 @@ def init_db() -> None:
                 refresh_token   TEXT NOT NULL,
                 expires_at      INTEGER NOT NULL,
                 updated_at      INTEGER NOT NULL
-            );
-
+            )
+            """
+        )
+        con.execute(
+            f"""
             CREATE TABLE IF NOT EXISTS attempts (
-                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                id               {autoinc_pk},
                 spotify_user_id  TEXT NOT NULL,
                 track_id         TEXT NOT NULL,
                 track_name       TEXT NOT NULL,
@@ -32,26 +79,31 @@ def init_db() -> None:
                 words_total      INTEGER NOT NULL,
                 duration_seconds INTEGER NOT NULL,
                 score            INTEGER NOT NULL,
-                created_at       INTEGER NOT NULL
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_attempts_user
-                ON attempts(spotify_user_id, created_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_attempts_track_score
-                ON attempts(track_id, score DESC);
+                created_at       INTEGER NOT NULL,
+                source_kind      TEXT,
+                source_id        TEXT
+            )
             """
         )
-        _add_column_if_missing(con, "attempts", "source_kind", "TEXT")
-        _add_column_if_missing(con, "attempts", "source_id", "TEXT")
+        # source_kind / source_id were added later. Existing SQLite DBs
+        # may have an older `attempts` schema; patch them. (Postgres only
+        # sees fresh schemas, so it doesn't need this.)
+        if not IS_POSTGRES:
+            _add_column_if_missing(con, "attempts", "source_kind", "TEXT")
+            _add_column_if_missing(con, "attempts", "source_id", "TEXT")
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS idx_attempts_user "
+            "ON attempts(spotify_user_id, created_at DESC)"
+        )
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS idx_attempts_track_score "
+            "ON attempts(track_id, score DESC)"
+        )
         con.execute(
             "CREATE INDEX IF NOT EXISTS idx_attempts_source "
             "ON attempts(spotify_user_id, source_kind, source_id, created_at DESC)"
         )
-
-        # Track-ID cache for playlists & albums. Keyed by snapshot so a stale
-        # row is just ignored next time (playlist contents changed -> miss).
-        # For albums (immutable), snapshot_id is set to the album id.
-        con.executescript(
+        con.execute(
             """
             CREATE TABLE IF NOT EXISTS set_tracks_cache (
                 kind         TEXT NOT NULL,
@@ -60,26 +112,16 @@ def init_db() -> None:
                 track_ids    TEXT NOT NULL,
                 updated_at   INTEGER NOT NULL,
                 PRIMARY KEY (kind, set_id, snapshot_id)
-            );
+            )
             """
         )
 
 
-def _add_column_if_missing(con: sqlite3.Connection, table: str, column: str, decl: str) -> None:
+def _add_column_if_missing(con, table: str, column: str, decl: str) -> None:
+    """SQLite-only migration helper (PRAGMA is SQLite-specific)."""
     cols = {row[1] for row in con.execute(f"PRAGMA table_info({table})")}
     if column not in cols:
         con.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
-
-
-@contextmanager
-def connect():
-    con = sqlite3.connect(DB_PATH)
-    con.row_factory = sqlite3.Row
-    try:
-        yield con
-        con.commit()
-    finally:
-        con.close()
 
 
 def upsert_user(
@@ -92,16 +134,18 @@ def upsert_user(
     now = int(time.time())
     with connect() as con:
         con.execute(
-            """
-            INSERT INTO users (spotify_user_id, display_name, access_token, refresh_token, expires_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(spotify_user_id) DO UPDATE SET
-                display_name = excluded.display_name,
-                access_token = excluded.access_token,
-                refresh_token = excluded.refresh_token,
-                expires_at   = excluded.expires_at,
-                updated_at   = excluded.updated_at
-            """,
+            _q(
+                """
+                INSERT INTO users (spotify_user_id, display_name, access_token, refresh_token, expires_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(spotify_user_id) DO UPDATE SET
+                    display_name = excluded.display_name,
+                    access_token = excluded.access_token,
+                    refresh_token = excluded.refresh_token,
+                    expires_at   = excluded.expires_at,
+                    updated_at   = excluded.updated_at
+                """
+            ),
             (spotify_user_id, display_name, access_token, refresh_token, expires_at, now),
         )
 
@@ -109,15 +153,15 @@ def upsert_user(
 def update_user_tokens(spotify_user_id: str, access_token: str, expires_at: int) -> None:
     with connect() as con:
         con.execute(
-            "UPDATE users SET access_token = ?, expires_at = ?, updated_at = ? WHERE spotify_user_id = ?",
+            _q("UPDATE users SET access_token = ?, expires_at = ?, updated_at = ? WHERE spotify_user_id = ?"),
             (access_token, expires_at, int(time.time()), spotify_user_id),
         )
 
 
-def get_user(spotify_user_id: str) -> sqlite3.Row | None:
+def get_user(spotify_user_id: str):
     with connect() as con:
         return con.execute(
-            "SELECT * FROM users WHERE spotify_user_id = ?", (spotify_user_id,)
+            _q("SELECT * FROM users WHERE spotify_user_id = ?"), (spotify_user_id,)
         ).fetchone()
 
 
@@ -133,70 +177,74 @@ def record_attempt(
     source_kind: str | None = None,
     source_id: str | None = None,
 ) -> int:
+    params = (
+        spotify_user_id, track_id, track_name, artist,
+        words_correct, words_total, duration_seconds, score, int(time.time()),
+        source_kind, source_id,
+    )
+    base_sql = """
+        INSERT INTO attempts
+          (spotify_user_id, track_id, track_name, artist,
+           words_correct, words_total, duration_seconds, score, created_at,
+           source_kind, source_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """
     with connect() as con:
-        cur = con.execute(
-            """
-            INSERT INTO attempts
-              (spotify_user_id, track_id, track_name, artist,
-               words_correct, words_total, duration_seconds, score, created_at,
-               source_kind, source_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                spotify_user_id, track_id, track_name, artist,
-                words_correct, words_total, duration_seconds, score, int(time.time()),
-                source_kind, source_id,
-            ),
-        )
-        return cur.lastrowid
+        if IS_POSTGRES:
+            row = con.execute(_q(base_sql + " RETURNING id"), params).fetchone()
+            return int(row["id"])
+        cur = con.execute(base_sql, params)
+        return int(cur.lastrowid)
 
 
-def list_user_attempts(spotify_user_id: str, limit: int = 50) -> list[sqlite3.Row]:
+def list_user_attempts(spotify_user_id: str, limit: int = 50):
     with connect() as con:
         return con.execute(
-            """
-            SELECT * FROM attempts
-            WHERE spotify_user_id = ?
-            ORDER BY created_at DESC
-            LIMIT ?
-            """,
+            _q(
+                """
+                SELECT * FROM attempts
+                WHERE spotify_user_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """
+            ),
             (spotify_user_id, limit),
         ).fetchall()
 
 
 def last_played_sets_by_user(spotify_user_id: str) -> dict[str, int]:
-    """Map of '<kind>:<id>' -> most recent attempt timestamp, for attempts
-    that recorded a source playlist or album. Lets the frontend sort the
-    playlist/album lists by recency without enumerating each set's tracks.
-    """
+    """Map of '<kind>:<id>' -> most recent attempt timestamp.
+    `||` is SQL standard string concat — works on both SQLite and Postgres."""
     with connect() as con:
         rows = con.execute(
-            """
-            SELECT source_kind || ':' || source_id AS key,
-                   MAX(created_at) AS last_at
-            FROM attempts
-            WHERE spotify_user_id = ?
-              AND source_kind IS NOT NULL
-              AND source_id IS NOT NULL
-            GROUP BY source_kind, source_id
-            """,
+            _q(
+                """
+                SELECT source_kind || ':' || source_id AS key,
+                       MAX(created_at) AS last_at
+                FROM attempts
+                WHERE spotify_user_id = ?
+                  AND source_kind IS NOT NULL
+                  AND source_id IS NOT NULL
+                GROUP BY source_kind, source_id
+                """
+            ),
             (spotify_user_id,),
         ).fetchall()
     return {r["key"]: int(r["last_at"]) for r in rows}
 
 
 def last_played_by_user(spotify_user_id: str) -> dict[str, int]:
-    """Map of song_key -> most recent attempt timestamp (unix seconds).
-    Keyed by song identity (artist+title) so the same recording across
-    different releases collapses into one entry."""
+    """Map of song_key -> most recent attempt timestamp."""
     with connect() as con:
         rows = con.execute(
-            """
-            SELECT track_name, artist, MAX(created_at) AS last_played
-            FROM attempts
-            WHERE spotify_user_id = ?
-            GROUP BY track_name, artist
-            """,
+            _q(
+                """
+                SELECT track_name, artist, MAX(created_at) AS last_played
+                FROM attempts
+                WHERE spotify_user_id = ?
+                GROUP BY track_name, artist
+                """
+            ),
             (spotify_user_id,),
         ).fetchall()
     out: dict[str, int] = {}
@@ -209,17 +257,18 @@ def last_played_by_user(spotify_user_id: str) -> dict[str, int]:
 
 
 def best_percent_by_user(spotify_user_id: str) -> dict[str, int]:
-    """Map of song_key -> best percentage (0-100, rounded) for this user.
-    See ``last_played_by_user`` for why we key on song identity, not track_id."""
+    """Map of song_key -> best percentage (0-100, rounded)."""
     with connect() as con:
         rows = con.execute(
-            """
-            SELECT track_name, artist,
-                   MAX(CAST(words_correct AS REAL) / words_total) AS best_pct
-            FROM attempts
-            WHERE spotify_user_id = ? AND words_total > 0
-            GROUP BY track_name, artist
-            """,
+            _q(
+                """
+                SELECT track_name, artist,
+                       MAX(CAST(words_correct AS REAL) / words_total) AS best_pct
+                FROM attempts
+                WHERE spotify_user_id = ? AND words_total > 0
+                GROUP BY track_name, artist
+                """
+            ),
             (spotify_user_id,),
         ).fetchall()
     out: dict[str, int] = {}
@@ -235,49 +284,58 @@ def get_cached_set_tracks(kind: str, set_id: str, snapshot_id: str) -> list[str]
     """Return the cached list of song_keys for a (playlist|album, snapshot) pair.
 
     Returns None for cache misses AND for stale rows in the legacy
-    track-id-only format (pre song_key migration). Stale rows are
-    silently overwritten the next time we cache for this set.
+    track-id-only format (pre song_key migration).
     """
     with connect() as con:
         row = con.execute(
-            "SELECT track_ids FROM set_tracks_cache "
-            "WHERE kind = ? AND set_id = ? AND snapshot_id = ?",
+            _q(
+                "SELECT track_ids FROM set_tracks_cache "
+                "WHERE kind = ? AND set_id = ? AND snapshot_id = ?"
+            ),
             (kind, set_id, snapshot_id),
         ).fetchone()
     if row is None:
         return None
-    import json
     data = json.loads(row["track_ids"])
-    # Heuristic: new format entries are "artist|title"; legacy entries are
-    # bare Spotify track IDs (22-char base62, no pipe). Treat legacy as miss.
     if not data:
         return data
+    # Heuristic: new format entries are "artist|title"; legacy entries are
+    # bare Spotify track IDs (no pipe). Treat legacy as miss.
     if "|" not in data[0]:
         return None
     return data
 
 
 def cache_set_tracks(kind: str, set_id: str, snapshot_id: str, song_keys: list[str]) -> None:
-    import json
+    """UPSERT cached track list. `ON CONFLICT` works on both SQLite (>=3.24)
+    and Postgres, so we don't need separate code paths."""
     with connect() as con:
         con.execute(
-            "INSERT OR REPLACE INTO set_tracks_cache "
-            "(kind, set_id, snapshot_id, track_ids, updated_at) "
-            "VALUES (?, ?, ?, ?, ?)",
+            _q(
+                """
+                INSERT INTO set_tracks_cache (kind, set_id, snapshot_id, track_ids, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT (kind, set_id, snapshot_id) DO UPDATE SET
+                    track_ids = excluded.track_ids,
+                    updated_at = excluded.updated_at
+                """
+            ),
             (kind, set_id, snapshot_id, json.dumps(song_keys), int(time.time())),
         )
 
 
-def top_scores_for_track(track_id: str, limit: int = 10) -> list[sqlite3.Row]:
+def top_scores_for_track(track_id: str, limit: int = 10):
     with connect() as con:
         return con.execute(
-            """
-            SELECT a.*, u.display_name
-            FROM attempts a
-            LEFT JOIN users u ON u.spotify_user_id = a.spotify_user_id
-            WHERE a.track_id = ?
-            ORDER BY a.score DESC, a.duration_seconds ASC
-            LIMIT ?
-            """,
+            _q(
+                """
+                SELECT a.*, u.display_name
+                FROM attempts a
+                LEFT JOIN users u ON u.spotify_user_id = a.spotify_user_id
+                WHERE a.track_id = ?
+                ORDER BY a.score DESC, a.duration_seconds ASC
+                LIMIT ?
+                """
+            ),
             (track_id, limit),
         ).fetchall()
