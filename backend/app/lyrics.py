@@ -2,11 +2,17 @@ import re
 import unicodedata
 from functools import lru_cache
 
+import httpx
 import lyricsgenius
 from fastapi import HTTPException
 from fastapi.concurrency import run_in_threadpool
 
 from .config import settings
+
+
+LRCLIB_BASE = "https://lrclib.net"
+# LRCLIB asks API consumers to identify themselves in the User-Agent.
+LRCLIB_UA = "react-spotify-lyrics/0.1 (https://github.com/abbyelbaum/react-spotify-lyrics)"
 
 
 _genius = lyricsgenius.Genius(
@@ -135,27 +141,78 @@ def tokenize(lyrics: str) -> list[dict]:
     return tokens
 
 
+def _try_lrclib(title: str, artist: str) -> str | None:
+    """Fetch plain lyrics from LRCLIB (free, JSON API, no scraping).
+    Returns the lyric text on success, or None if nothing usable was found
+    or the service was unreachable.
+    """
+    try:
+        with httpx.Client(timeout=10, headers={"User-Agent": LRCLIB_UA}) as client:
+            # Exact-match endpoint first — fastest path when titles align.
+            r = client.get(
+                f"{LRCLIB_BASE}/api/get",
+                params={"track_name": title, "artist_name": artist},
+            )
+            if r.status_code == 200:
+                data = r.json()
+                lyrics = (data.get("plainLyrics") or "").strip()
+                if lyrics:
+                    return lyrics
+            # Fuzzy search fallback for when artist/title differ from LRCLIB's records.
+            r = client.get(
+                f"{LRCLIB_BASE}/api/search",
+                params={"track_name": title, "artist_name": artist},
+            )
+            if r.status_code == 200:
+                results = r.json()
+                if isinstance(results, list):
+                    for hit in results:
+                        lyrics = (hit.get("plainLyrics") or "").strip()
+                        if not lyrics:
+                            continue
+                        if _is_plausible_match(
+                            hit.get("trackName") or "",
+                            hit.get("artistName") or "",
+                            title,
+                            artist,
+                        ):
+                            return lyrics
+    except httpx.HTTPError:
+        # Treat any network/timeout error as "not found" and fall through to Genius.
+        return None
+    return None
+
+
+def _try_genius(title: str, artist: str) -> str | None:
+    """Fallback path. Often blocked from datacenter IPs by Cloudflare, hence
+    why LRCLIB is tried first."""
+    try:
+        song = _genius.search_song(title, artist)
+    except Exception:
+        return None
+    if song is None or not getattr(song, "lyrics", None):
+        return None
+    returned_title = getattr(song, "title", "") or ""
+    returned_artist = getattr(song, "artist", "") or ""
+    if not _is_plausible_match(returned_title, returned_artist, title, artist):
+        return None
+    return song.lyrics
+
+
 @lru_cache(maxsize=256)
 def _fetch_lyrics_sync(title: str, artist: str) -> str:
     clean_title = _clean_title_for_search(title)
     clean_artist = _clean_artist_for_search(artist)
-    try:
-        song = _genius.search_song(clean_title, clean_artist)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Genius lookup failed: {e}")
-    if song is None or not getattr(song, "lyrics", None):
-        raise HTTPException(status_code=404, detail=f"No lyrics found for '{title}' by '{artist}'")
-    returned_title = getattr(song, "title", "") or ""
-    returned_artist = getattr(song, "artist", "") or ""
-    if not _is_plausible_match(returned_title, returned_artist, clean_title, clean_artist):
+
+    raw = _try_lrclib(clean_title, clean_artist)
+    if raw is None:
+        raw = _try_genius(clean_title, clean_artist)
+    if raw is None:
         raise HTTPException(
             status_code=404,
-            detail=(
-                f"Genius returned a non-matching page for '{title}' by '{artist}' "
-                f"(got '{returned_title}' by '{returned_artist}')"
-            ),
+            detail=f"No lyrics found for '{title}' by '{artist}' (tried LRCLIB and Genius)",
         )
-    return _clean_lyrics(song.lyrics)
+    return _clean_lyrics(raw)
 
 
 async def get_tokenized_lyrics(title: str, artist: str) -> dict:
