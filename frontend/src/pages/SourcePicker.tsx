@@ -109,9 +109,13 @@ function TopTracks({ navigate, bestScores }: { navigate: Nav; bestScores: BestSc
   return (
     <>
       <div className="row gap">
-        <label>
-          Time range:{' '}
-          <select value={timeRange} onChange={(e) => setTimeRange(e.target.value)}>
+        <label className="select-field">
+          <span className="select-label">Time range</span>
+          <select
+            className="styled-select"
+            value={timeRange}
+            onChange={(e) => setTimeRange(e.target.value)}
+          >
             {TIME_RANGES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
           </select>
         </label>
