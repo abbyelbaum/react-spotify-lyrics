@@ -147,7 +147,7 @@ def _try_lrclib(title: str, artist: str) -> str | None:
     or the service was unreachable.
     """
     try:
-        with httpx.Client(timeout=10, headers={"User-Agent": LRCLIB_UA}) as client:
+        with httpx.Client(timeout=15, headers={"User-Agent": LRCLIB_UA}) as client:
             # Exact-match endpoint first — fastest path when titles align.
             r = client.get(
                 f"{LRCLIB_BASE}/api/get",
@@ -158,6 +158,10 @@ def _try_lrclib(title: str, artist: str) -> str | None:
                 lyrics = (data.get("plainLyrics") or "").strip()
                 if lyrics:
                     return lyrics
+                print(f"[lrclib] /api/get 200 for {title!r}/{artist!r} but no plainLyrics", flush=True)
+            elif r.status_code != 404:
+                # 404 is just "not found, try search". Other codes are notable.
+                print(f"[lrclib] /api/get {r.status_code} for {title!r}/{artist!r}: {r.text[:200]!r}", flush=True)
             # Fuzzy search fallback for when artist/title differ from LRCLIB's records.
             r = client.get(
                 f"{LRCLIB_BASE}/api/search",
@@ -166,6 +170,7 @@ def _try_lrclib(title: str, artist: str) -> str | None:
             if r.status_code == 200:
                 results = r.json()
                 if isinstance(results, list):
+                    print(f"[lrclib] /api/search returned {len(results)} hits for {title!r}/{artist!r}", flush=True)
                     for hit in results:
                         lyrics = (hit.get("plainLyrics") or "").strip()
                         if not lyrics:
@@ -177,8 +182,16 @@ def _try_lrclib(title: str, artist: str) -> str | None:
                             artist,
                         ):
                             return lyrics
-    except httpx.HTTPError:
-        # Treat any network/timeout error as "not found" and fall through to Genius.
+                    print(
+                        f"[lrclib] no hits passed match check for {title!r}/{artist!r}; "
+                        f"first hit was {results[0].get('trackName')!r} by {results[0].get('artistName')!r}"
+                        if results else f"[lrclib] empty search results",
+                        flush=True,
+                    )
+            else:
+                print(f"[lrclib] /api/search {r.status_code} for {title!r}/{artist!r}: {r.text[:200]!r}", flush=True)
+    except httpx.HTTPError as e:
+        print(f"[lrclib] network error for {title!r}/{artist!r}: {type(e).__name__}: {e}", flush=True)
         return None
     return None
 
