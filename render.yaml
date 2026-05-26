@@ -1,0 +1,32 @@
+# Render Blueprint — declarative service config.
+# When you point Render at this repo as a Blueprint, it provisions the
+# backend with these settings. Secrets marked `sync: false` are prompted
+# for in the Render UI on first deploy.
+
+services:
+  - type: web
+    name: react-spotify-lyrics-backend
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      # Sensitive — Render will prompt for these in the Blueprint UI.
+      - key: SPOTIFY_CLIENT_ID
+        sync: false
+      - key: SPOTIFY_CLIENT_SECRET
+        sync: false
+      - key: GENIUS_ACCESS_TOKEN
+        sync: false
+
+      # Per-deploy values you'll fill in once you know your Netlify URL.
+      - key: SPOTIFY_REDIRECT_URI
+        sync: false   # e.g. https://your-site.netlify.app/auth/callback
+      - key: FRONTEND_URL
+        sync: false   # e.g. https://your-site.netlify.app
+
+      # Auto-generated cookie signing secret. Don't sync the local one.
+      - key: SESSION_SECRET
+        generateValue: true
