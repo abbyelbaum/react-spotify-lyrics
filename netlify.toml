@@ -16,7 +16,7 @@
 [build]
   base    = "frontend"
   command = "npm run build"
-  publish = "frontend/dist"
+  publish = "dist"   # relative to `base`, so this resolves to frontend/dist
 
 # Proxy backend routes. `status = 200` makes these rewrites (transparent
 # server-side proxy), not redirects, so the URL stays on the Netlify domain.
