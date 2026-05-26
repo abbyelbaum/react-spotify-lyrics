@@ -23,11 +23,36 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 IS_POSTGRES = DATABASE_URL.startswith(("postgres://", "postgresql://"))
 
 if IS_POSTGRES:
-    import psycopg
-    from psycopg.rows import dict_row
+    import threading
 
-# Only used when DATABASE_URL is unset (local dev). On Render free with
-# Postgres in production, this path is never touched.
+    from psycopg.rows import dict_row
+    from psycopg_pool import ConnectionPool
+
+    # Keep a small pool of Postgres connections warm. Without this every
+    # query reopens a new connection (~100-200ms over the network) which
+    # adds up disastrously on endpoints that fire many small queries
+    # (e.g. /api/set-tracks loops over every playlist/album).
+    _pg_pool = ConnectionPool(
+        DATABASE_URL,
+        min_size=1,
+        max_size=5,
+        kwargs={"row_factory": dict_row},
+        open=False,  # open lazily so import doesn't fail if Neon is sleeping
+    )
+    _pool_open_lock = threading.Lock()
+    _pool_opened = False
+
+    def _ensure_pool_open() -> None:
+        global _pool_opened
+        if _pool_opened:
+            return
+        with _pool_open_lock:
+            if not _pool_opened:
+                _pg_pool.open(wait=True, timeout=30)
+                _pool_opened = True
+
+# Only used when DATABASE_URL is unset (local dev). On Render with Postgres
+# in production, this path is never touched.
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "scores.db"
 
 
@@ -39,10 +64,14 @@ def _q(sql: str) -> str:
 @contextmanager
 def connect():
     if IS_POSTGRES:
-        con = psycopg.connect(DATABASE_URL, row_factory=dict_row)
-    else:
-        con = sqlite3.connect(DB_PATH)
-        con.row_factory = sqlite3.Row
+        _ensure_pool_open()
+        # pool.connection() context manager handles commit/rollback +
+        # returns the connection to the pool (NOT closes it) on exit.
+        with _pg_pool.connection() as con:
+            yield con
+        return
+    con = sqlite3.connect(DB_PATH)
+    con.row_factory = sqlite3.Row
     try:
         yield con
         con.commit()

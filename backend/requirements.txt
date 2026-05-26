@@ -7,4 +7,5 @@ lyricsgenius>=3.0
 pydantic>=2.9
 # Only used when DATABASE_URL is set (production). Local dev with SQLite
 # doesn't import this — install is still cheap so we keep it required.
-psycopg[binary]>=3.1
+# `pool` extra pulls in psycopg-pool so connections stay warm and reused.
+psycopg[binary,pool]>=3.1
