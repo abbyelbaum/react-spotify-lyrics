@@ -1,0 +1,40 @@
+# Netlify deploy config.
+#
+# The frontend is built from frontend/ and published to frontend/dist.
+# /api/* and /auth/* are proxied to the Render backend so the browser sees
+# a single origin (no CORS, simple cookies — same trick as Vite in dev).
+# All other paths fall through to /index.html so client-side routing works
+# on refresh.
+#
+# Required environment variable (set in Netlify dashboard → Site settings
+# → Environment variables → "Build & deploy"):
+#
+#   BACKEND_URL = https://your-app-backend.onrender.com
+#
+# After setting it, redeploy.
+
+[build]
+  base    = "frontend"
+  command = "npm run build"
+  publish = "frontend/dist"
+
+# Proxy backend routes. `status = 200` makes these rewrites (transparent
+# server-side proxy), not redirects, so the URL stays on the Netlify domain.
+[[redirects]]
+  from   = "/api/*"
+  to     = "${BACKEND_URL}/api/:splat"
+  status = 200
+  force  = true
+
+[[redirects]]
+  from   = "/auth/*"
+  to     = "${BACKEND_URL}/auth/:splat"
+  status = 200
+  force  = true
+
+# SPA fallback: every other path serves the React app's index.html so
+# routes like /quiz and /scores work on direct navigation / refresh.
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200

@@ -120,6 +120,96 @@ Click **Log in with Spotify**, approve, and you'll land on the song picker.
   recording on a single, an album, and a compilation all count as one
   "song played."
 
+## Deploying for free (Netlify + Render)
+
+The whole app fits on free tiers if you accept two trade-offs: a ~30s cold-start
+delay the first time anyone visits after idle, and a small Spotify Development
+Mode user cap (whatever your dashboard shows you — currently as low as 5 users).
+Going beyond that user cap requires Spotify's Quota Extension review, which is
+its own process (privacy policy + ToS + ~weeks of waiting).
+
+### Architecture
+
+```
+Browser
+  │
+  ├── Frontend  →  https://<you>.netlify.app             (Netlify, free)
+  │                  ├── /api/*   ──proxy──┐
+  │                  └── /auth/*  ──proxy──┤
+  │                                        ▼
+  └─────────────────────────  https://<you>.onrender.com  (Render free web service)
+                                           │
+                                           ├── Spotify API
+                                           ├── Genius API
+                                           └── SQLite (ephemeral on free tier)
+```
+
+Netlify proxies `/api/*` and `/auth/*` to the Render backend (configured in
+`netlify.toml`), so the browser only sees one origin — no CORS, no cross-site
+cookie pain. The backend URL is invisible to the browser.
+
+### 1. Deploy the backend (Render)
+
+1. Push the repo to GitHub.
+2. https://render.com → **New** → **Web Service** → connect the repo.
+3. Settings:
+   - **Root Directory:** `backend`
+   - **Build Command:** `pip install -r requirements.txt`
+   - **Start Command:** `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+   - **Instance Type:** Free
+4. **Environment Variables** — add all of these (same names as `.env.example`):
+
+   | Variable | Production value |
+   | --- | --- |
+   | `SPOTIFY_CLIENT_ID` | (from Spotify dashboard) |
+   | `SPOTIFY_CLIENT_SECRET` | (from Spotify dashboard) |
+   | `SPOTIFY_REDIRECT_URI` | `https://<your-netlify-site>.netlify.app/auth/callback` |
+   | `GENIUS_ACCESS_TOKEN` | (from Genius) |
+   | `SESSION_SECRET` | a **new** random string (don't reuse the local one) |
+   | `FRONTEND_URL` | `https://<your-netlify-site>.netlify.app` |
+
+5. Deploy. Copy the resulting Render URL (`https://<you>.onrender.com`) — you'll
+   need it for Netlify.
+
+### 2. Deploy the frontend (Netlify)
+
+1. https://app.netlify.com → **Add new site** → **Import an existing project**
+   → pick the repo.
+2. Netlify will read `netlify.toml` for the build settings (base, command,
+   publish dir, proxy rules). No manual config needed.
+3. **Site settings** → **Environment variables** → add:
+
+   | Variable | Value |
+   | --- | --- |
+   | `BACKEND_URL` | `https://<your-render-site>.onrender.com` |
+
+4. **Trigger redeploy** — Netlify bakes env vars into the proxy rules at deploy time,
+   so the first deploy (which happened before you set `BACKEND_URL`) won't have them.
+
+### 3. Update Spotify dashboard
+
+1. https://developer.spotify.com/dashboard → your app → **Settings**.
+2. Under **Redirect URIs**, add: `https://<your-netlify-site>.netlify.app/auth/callback`
+3. Click **Save**.
+4. Under **User Management**, add the Spotify-account emails of anyone you want
+   to be able to log in (up to your dashboard's quota — currently 5 for newer apps).
+
+### 4. Optional: keep the backend warm
+
+Render free services sleep after 15 min of inactivity. To avoid the cold-start
+delay, point a free uptime pinger (cron-job.org / UptimeRobot) at
+`https://<you>.onrender.com/api/health` every 5-10 minutes.
+
+### Caveats of the free tier
+
+- **Score history is ephemeral.** SQLite lives on Render's local filesystem,
+  which resets on every deploy and on instance migrations (which can happen
+  daily). For persistent scores you'd switch to Neon Postgres (free, 0.5 GB)
+  by rewriting `backend/app/db.py` against `psycopg`. Not done here.
+- **Cold start.** First request after idle takes ~30s.
+- **Build bandwidth.** Netlify free tier has 100 GB/month bandwidth and 300
+  build minutes/month. Plenty for a personal project.
+
 ## Known caveats
 
 - Genius's API returns metadata and a URL but not lyrics text directly;
