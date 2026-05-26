@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { api, normalizeWord, type LyricToken, type Track } from '../lib/api'
+import { api, normalizeWord, songKey, type LyricToken, type Track } from '../lib/api'
 
 type Status = 'loading' | 'playing' | 'done' | 'error'
 
@@ -34,6 +34,7 @@ export default function Quiz() {
   const pausedMsRef = useRef<number>(0)
   const pauseStartRef = useRef<number | null>(null)
   const [finalScore, setFinalScore] = useState<number | null>(null)
+  const [previousBest, setPreviousBest] = useState<number | null>(null)
   const submittedRef = useRef(false)
 
   const [nextInfo, setNextInfo] = useState<NextInfo | null>(null)
@@ -115,8 +116,27 @@ export default function Quiz() {
         setPaused(false)
         setElapsed(0)
         setFinalScore(null)
+        setPreviousBest(null)
         submittedRef.current = false
         setStatus('playing')
+
+        // Look up previous best percent for this song so we can show
+        // an "improved by" message if they beat it.
+        try {
+          const attempts = await api.myAttempts()
+          if (cancelled) return
+          const key = songKey(song.title, song.artist)
+          let bestPct = -1
+          for (const a of attempts) {
+            if (a.words_total <= 0) continue
+            if (songKey(a.track_name, a.artist) !== key) continue
+            const pct = (a.words_correct / a.words_total) * 100
+            if (pct > bestPct) bestPct = pct
+          }
+          if (bestPct >= 0) setPreviousBest(bestPct)
+        } catch {
+          /* silent — improvement banner is optional */
+        }
       } catch (e) {
         if (!cancelled) {
           setErrorMsg(String(e))
@@ -383,6 +403,18 @@ export default function Quiz() {
             .
           </p>
           {finalScore !== null && <p>Score: <strong>{finalScore}</strong></p>}
+          {status === 'done' && totalWords > 0 && previousBest !== null && (() => {
+            const currentPct = (correctCount / totalWords) * 100
+            if (currentPct <= previousBest) return null
+            const delta = currentPct - previousBest
+            return (
+              <p className="improvement">
+                🎉 New high score! You beat your previous best of{' '}
+                <strong>{Math.round(previousBest)}%</strong> by{' '}
+                <strong>{delta < 1 ? delta.toFixed(1) : Math.round(delta)}%</strong>{' '}🎉
+              </p>
+            )
+          })()}
           {errorMsg && <p className="error">{errorMsg}</p>}
           <div className="row gap center wrap">
             {nextInfo && (

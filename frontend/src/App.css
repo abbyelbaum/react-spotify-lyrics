@@ -238,6 +238,15 @@
 .blind-hidden { letter-spacing: 6px; }
 .blind-tag { margin-top: 4px; }
 .reveal-line { margin-bottom: 8px; }
+.improvement {
+  margin-top: 12px;
+  margin-bottom: 20px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(29, 185, 84, 0.12);
+  border: 1px solid rgba(29, 185, 84, 0.45);
+  color: var(--text-h, inherit);
+}
 
 /* Search */
 .search-bar { margin: 16px 0; }
