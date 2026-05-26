@@ -30,7 +30,8 @@
   padding: 12px 24px;
   border-bottom: 1px solid var(--border);
 }
-.brand {
+.brand,
+button.brand {
   font-family: var(--heading);
   font-weight: 600;
   font-size: 22px;
@@ -45,6 +46,8 @@
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+  appearance: none;
+  cursor: pointer;
 }
 .brand:hover {
   border-color: var(--accent-border);
@@ -206,6 +209,7 @@
   background: var(--accent-bg);
   text-align: center;
 }
+.done-actions { margin-top: 8px; }
 
 /* Scores */
 .scores-table {

@@ -6,7 +6,7 @@ type Status = 'loading' | 'playing' | 'done' | 'error'
 
 type NextInfo = { track: Track; label: string }
 
-export default function Quiz() {
+export default function Quiz({ isGuest = false }: { isGuest?: boolean } = {}) {
   const [search] = useSearchParams()
   const navigate = useNavigate()
 
@@ -121,21 +121,24 @@ export default function Quiz() {
         setStatus('playing')
 
         // Look up previous best percent for this song so we can show
-        // an "improved by" message if they beat it.
-        try {
-          const attempts = await api.myAttempts()
-          if (cancelled) return
-          const key = songKey(song.title, song.artist)
-          let bestPct = -1
-          for (const a of attempts) {
-            if (a.words_total <= 0) continue
-            if (songKey(a.track_name, a.artist) !== key) continue
-            const pct = (a.words_correct / a.words_total) * 100
-            if (pct > bestPct) bestPct = pct
+        // an "improved by" message if they beat it. Skipped for guests
+        // (no attempt history; /api/attempts requires auth).
+        if (!isGuest) {
+          try {
+            const attempts = await api.myAttempts()
+            if (cancelled) return
+            const key = songKey(song.title, song.artist)
+            let bestPct = -1
+            for (const a of attempts) {
+              if (a.words_total <= 0) continue
+              if (songKey(a.track_name, a.artist) !== key) continue
+              const pct = (a.words_correct / a.words_total) * 100
+              if (pct > bestPct) bestPct = pct
+            }
+            if (bestPct >= 0) setPreviousBest(bestPct)
+          } catch {
+            /* silent — improvement banner is optional */
           }
-          if (bestPct >= 0) setPreviousBest(bestPct)
-        } catch {
-          /* silent — improvement banner is optional */
         }
       } catch (e) {
         if (!cancelled) {
@@ -225,6 +228,7 @@ export default function Quiz() {
     const words_correct = finalFilled.filter(Boolean).length
     const duration_seconds = Math.max(0, Math.floor(computeElapsedMs() / 1000))
     setStatus('done')
+    if (isGuest) return  // no attempt persistence for guests
     const [sourceKind, sourceId] = sourceRaw ? sourceRaw.split(':', 2) : [null, null]
     try {
       const result = await api.submitAttempt({
@@ -416,14 +420,14 @@ export default function Quiz() {
             )
           })()}
           {errorMsg && <p className="error">{errorMsg}</p>}
-          <div className="row gap center wrap">
+          <div className="row gap center wrap done-actions">
             {nextInfo && (
               <button className="btn btn-primary" onClick={goToNext}>
                 {nextInfo.label}{!blind && nextInfo.track.name ? `: ${nextInfo.track.name}` : ''}
               </button>
             )}
-            <Link className="btn" to="/picker">Pick another song</Link>
-            <Link className="btn" to="/scores">View my scores</Link>
+            <Link className="btn" to="/picker">{isGuest ? 'Search another song' : 'Pick another song'}</Link>
+            {!isGuest && <Link className="btn" to="/scores">View my scores</Link>}
           </div>
         </div>
       )}

@@ -75,6 +75,34 @@ async def refresh_access_token(refresh_token: str) -> dict:
     return r.json()
 
 
+_cc_token_cache: dict = {"token": None, "expires_at": 0}
+
+
+async def get_client_credentials_token() -> str:
+    """App-level Spotify token for public reads (search, album lookups).
+    No user auth required. Cached in-memory until expiry. Used by the
+    "Play as guest" mode so a viewer can browse the public Spotify catalog
+    without logging in.
+    """
+    if _cc_token_cache["token"] and time.time() < _cc_token_cache["expires_at"] - 30:
+        return _cc_token_cache["token"]
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.post(
+            SPOTIFY_TOKEN_URL,
+            data={"grant_type": "client_credentials"},
+            headers={"Authorization": _basic_auth_header()},
+        )
+    if r.status_code != 200:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Spotify client_credentials failed: {r.text}",
+        )
+    data = r.json()
+    _cc_token_cache["token"] = data["access_token"]
+    _cc_token_cache["expires_at"] = time.time() + int(data.get("expires_in", 3600))
+    return _cc_token_cache["token"]
+
+
 async def fetch_me(access_token: str) -> dict:
     async with httpx.AsyncClient(timeout=15) as client:
         r = await client.get(SPOTIFY_ME_URL, headers={"Authorization": f"Bearer {access_token}"})

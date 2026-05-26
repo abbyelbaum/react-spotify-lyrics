@@ -1,4 +1,10 @@
-export default function Login({ error }: { error?: string | null }) {
+export default function Login({
+  error,
+  onPlayAsGuest,
+}: {
+  error?: string | null
+  onPlayAsGuest: () => void
+}) {
   return (
     <div className="page page-center">
       <h1>Lyric Quiz</h1>
@@ -9,8 +15,12 @@ export default function Login({ error }: { error?: string | null }) {
       <a className="btn btn-primary btn-lg" href="/auth/login">
         Log in with Spotify
       </a>
+      <button className="btn btn-lg" onClick={onPlayAsGuest}>
+        Play as guest
+      </button>
       <p className="muted small">
-        We use Spotify's OAuth login. We never see your password.
+        Log in to play from your library and save scores.
+        Guest mode lets you search and play any song — scores aren't saved.
       </p>
     </div>
   )

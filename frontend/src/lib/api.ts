@@ -97,6 +97,11 @@ export const api = {
   search: (q: string, type = 'track,album') =>
     request<SearchResults>(`/api/search?q=${encodeURIComponent(q)}&type=${encodeURIComponent(type)}`),
 
+  guestSearch: (q: string, type = 'track,album') =>
+    request<SearchResults>(`/api/guest/search?q=${encodeURIComponent(q)}&type=${encodeURIComponent(type)}`),
+  guestAlbumTracks: (id: string) =>
+    request<Track[]>(`/api/guest/albums/${encodeURIComponent(id)}/tracks`),
+
   lyrics: (title: string, artist: string) =>
     request<LyricsResponse>(
       `/api/lyrics?title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}`,

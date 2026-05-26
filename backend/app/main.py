@@ -125,9 +125,26 @@ async def api_random_from_top(request: Request, time_range: str = "medium_term")
 # -------------------- Lyrics + quiz --------------------
 
 @app.get("/api/lyrics")
-async def api_lyrics(request: Request, title: str, artist: str):
-    auth.current_user_id(request)  # must be logged in
+async def api_lyrics(title: str, artist: str):
+    # No auth required: lyrics come from LRCLIB (and fall back to Genius),
+    # neither of which needs Spotify. Both logged-in users and guests use this.
     return await lyrics.get_tokenized_lyrics(title, artist)
+
+
+# -------------------- Guest endpoints (no Spotify login required) --------------------
+
+@app.get("/api/guest/search")
+async def api_guest_search(q: str, type: str = "track,album"):
+    if not q.strip():
+        return {"tracks": [], "albums": []}
+    token = await auth.get_client_credentials_token()
+    return await spotify.search(token, q, type)
+
+
+@app.get("/api/guest/albums/{album_id}/tracks")
+async def api_guest_album_tracks(album_id: str):
+    token = await auth.get_client_credentials_token()
+    return await spotify.get_album_tracks(token, album_id)
 
 
 class AttemptIn(BaseModel):
